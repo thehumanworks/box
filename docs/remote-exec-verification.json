@@ -1,0 +1,142 @@
+{
+  "started_at": "2026-11-05T17:40:06.932163+00:00",
+  "app": "box-exec-api",
+  "app_id": "ap-jxTWqQzigEtp9a4Qblw74Z",
+  "workspace": "imagent",
+  "environment": "main",
+  "url": "https://imagent--box-exec-api-web.us-east.modal.run",
+  "box": "lf-box",
+  "checks": [
+    {
+      "check": "unauthenticated /exec",
+      "http_status": 401,
+      "seconds": 0.982
+    },
+    {
+      "check": "unauthenticated /spawn",
+      "http_status": 401,
+      "seconds": 0.113
+    },
+    {
+      "check": "unauthenticated /poll/fc-unknown",
+      "http_status": 401,
+      "seconds": 0.139
+    },
+    {
+      "check": "invalid credentials",
+      "http_status": 401,
+      "seconds": 0.136
+    },
+    {
+      "check": "nix version (first)",
+      "http_status": 200,
+      "seconds": 8.245
+    },
+    {
+      "check": "nix version (warm)",
+      "http_status": 200,
+      "seconds": 1.246
+    },
+    {
+      "check": "cwd, literal argv, streams and exit",
+      "http_status": 200,
+      "seconds": 1.263
+    },
+    {
+      "check": "invalid empty argv",
+      "http_status": 422,
+      "seconds": 0.593
+    },
+    {
+      "check": "invalid cwd",
+      "http_status": 422,
+      "seconds": 0.584
+    },
+    {
+      "check": "sync timeout requires spawn",
+      "http_status": 422,
+      "seconds": 0.593
+    },
+    {
+      "check": "unknown box",
+      "http_status": 409,
+      "seconds": 1.082
+    },
+    {
+      "check": "missing cwd is not created",
+      "http_status": 200,
+      "seconds": 1.202
+    },
+    {
+      "check": "verify missing cwd remains absent",
+      "http_status": 200,
+      "seconds": 1.238
+    },
+    {
+      "check": "idempotent original",
+      "http_status": 200,
+      "seconds": 1.263
+    },
+    {
+      "check": "idempotent repeat",
+      "http_status": 200,
+      "seconds": 1.082
+    },
+    {
+      "check": "side effect happened once",
+      "http_status": 200,
+      "seconds": 1.27
+    },
+    {
+      "check": "idempotency conflict",
+      "http_status": 409,
+      "seconds": 1.081
+    },
+    {
+      "check": "spawn returns handle",
+      "http_status": 202,
+      "seconds": 1.466
+    },
+    {
+      "check": "background completion",
+      "http_status": 200,
+      "pending_polls": 4,
+      "call_id": "fc-01M6PCQY2Z2PHZ177JW0J96HYW",
+      "status": "completed"
+    },
+    {
+      "check": "repeat polling",
+      "http_status": 200,
+      "seconds": 0.873
+    },
+    {
+      "check": "spawn invalid box",
+      "http_status": 202,
+      "seconds": 1.23
+    },
+    {
+      "check": "background failure",
+      "http_status": 200,
+      "pending_polls": 0,
+      "call_id": "fc-01M6PCR6A2EBW6KH9HA3WTK6EV",
+      "status": "failed"
+    },
+    {
+      "check": "unknown call cannot read other results",
+      "http_status": 404,
+      "seconds": 0.612
+    },
+    {
+      "check": "bounded output on both streams",
+      "http_status": 200,
+      "seconds": 7.215
+    },
+    {
+      "check": "cleanup test-owned file",
+      "http_status": 200,
+      "seconds": 1.196
+    }
+  ],
+  "passed": true,
+  "finished_at": "2026-11-05T17:40:48.757876+00:00"
+}

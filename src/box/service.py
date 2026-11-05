@@ -370,7 +370,13 @@ class Service:
             print(f"box: {message}", file=sys.stderr)
         return record, sb
 
-    def execute(self, name, command, *, capture=False, timeout=3600, cwd=None):
+    def execute(
+        self, name, command, *, capture=False, timeout=3600, cwd=None, max_output_bytes=None
+    ):
+        if max_output_bytes is not None and (
+            not capture or type(max_output_bytes) is not int or max_output_bytes < 1
+        ):
+            raise ValueError("max_output_bytes requires capture=True and a positive integer")
         if cwd is not None:
             cwd = remote_path(cwd, allow_root=True)
         record, sb = self.running(name, allow_incomplete=cwd is not None)
@@ -389,12 +395,24 @@ class Service:
         # Drain both streams concurrently so a full stderr pipe cannot deadlock stdout.
         if capture:
             with ThreadPoolExecutor(max_workers=2) as pool:
-                out = pool.submit(proc.stdout.read)
-                err = pool.submit(proc.stderr.read)
+                out = pool.submit(self._capture, proc.stdout, max_output_bytes)
+                err = pool.submit(self._capture, proc.stderr, max_output_bytes)
                 code = proc.wait()
-                stderr = err.result()
+                stdout, stdout_truncated = out.result()
+                stderr, stderr_truncated = err.result()
                 hint = self._cwd_failure_hint(code, stderr, name, workdir)
-                return {"exit_code": code, "stdout": out.result(), "stderr": stderr + hint}
+                value = {"exit_code": code, "stdout": stdout, "stderr": stderr + hint}
+                if max_output_bytes is not None:
+                    encoded_stderr = value["stderr"].encode("utf-8")
+                    if len(encoded_stderr) > max_output_bytes:
+                        value["stderr"] = encoded_stderr[:max_output_bytes].decode(
+                            "utf-8", errors="ignore"
+                        )
+                        stderr_truncated = True
+                    value.update(
+                        stdout_truncated=stdout_truncated, stderr_truncated=stderr_truncated
+                    )
+                return value
 
         def drain(stream, target):
             tail = ""
@@ -413,6 +431,22 @@ class Service:
             if hint:
                 print(hint, end="", file=sys.stderr)
         return {"exit_code": code}
+
+    @staticmethod
+    def _capture(stream, limit):
+        if limit is None:
+            return stream.read(), False
+        output, truncated = bytearray(), False
+        # Modal yields bounded chunks (not lines). Continue draining after the
+        # cap so large output cannot exhaust memory or block the remote process.
+        for chunk in stream:
+            data = chunk.encode("utf-8")
+            remaining = limit - len(output)
+            output.extend(data[:remaining])
+            truncated |= len(data) > remaining
+        # Drop an incomplete final UTF-8 codepoint instead of replacing it with
+        # three bytes that could exceed the configured byte limit.
+        return output.decode("utf-8", errors="ignore"), truncated
 
     @staticmethod
     def _cwd_failure_hint(code, stderr, name, workdir):

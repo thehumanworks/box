@@ -70,6 +70,7 @@
                 ./README.md
                 ./src
                 ./tests
+                ./scripts
               ];
             };
             build-system = [ pkgs.python3Packages.hatchling ];
@@ -79,6 +80,9 @@
             ];
             nativeCheckInputs = [
               pkgs.python3Packages.pytestCheckHook
+              pkgs.python3Packages.fastapi
+              pkgs.python3Packages.pydantic
+              pkgs.python3Packages.httpx
               pkgs.git
             ];
             doCheck = true;
