@@ -5,5 +5,7 @@ __pycache__/
 dist/
 *.egg-info/
 .env
+.env.keys
+.env.keys.*
 mise.local.toml
 .DS_Store
