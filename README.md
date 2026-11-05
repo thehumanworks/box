@@ -57,7 +57,8 @@ exclude = ["dist", ".env"]
 
 Clone paths are relative to the configuration file. `box --config path/to/box.toml up`
 uses an explicit file. New boxes use its resource settings; existing boxes retain
-their saved configuration. Resume never recopies local files over remote changes.
+their saved configuration. Resume skips completed clones and never copies over remote changes.
+If initial setup was interrupted, it finishes only the uncompleted steps.
 
 ## Everyday commands
 
@@ -70,6 +71,8 @@ box pull dev /workspace ./work-from-box          # bring changes home
 box ssh dev --print
 box --human exec dev -- npm test                 # stream output
 box --json exec dev -- bash -lc 'git status --short'
+box exec --cwd / dev -- ls -la                   # inspect, even during incomplete setup
+box exec -w /workspace/project dev -- git status # directory for this command only
 box up data --volume my-data:/mnt/data
 box rm dev --yes                                # stop and forget; keep volumes
 ```
@@ -192,6 +195,10 @@ Image builds stream progress to stdout in human mode and stderr in JSON mode.
 JSON execution returns `exit_code`, `stdout` and `stderr`; human mode streams both.
 Use `--` before remote commands to preserve their options. Normal lifecycle operations
 never prompt. `box ssh` requires a terminal; agents should use `box exec`.
+`box exec` uses the saved working directory. Override it for one command with
+`--cwd /PATH` or `-w /PATH`, before the `--` separator. The path must be absolute
+and already exist; `/` is allowed. Exec never creates directories or changes the
+saved configuration. A missing directory fails before the command starts.
 
 Names, saved configuration, sandbox IDs and locks live in a Modal Dict in the active
 Modal account/environment. Another authenticated machine can `box ls` and resume a
@@ -200,6 +207,27 @@ Atomic per-name locks prevent competing create/pause/resume operations. After a 
 crash, inspect the reported lock owner and use `box unlock NAME --force` only after
 confirming that process has stopped. Lost API responses during creation may require
 finding the sandbox by its `box.name` tag in Modal before removing a stale record.
+
+## Interrupted setup
+
+A live sandbox is not necessarily ready. `box status` reports `setup-incomplete`
+for a live box whose setup did not finish, with the last setup phase in `setup`.
+Default `exec` and SSH refuse an incomplete box rather than hiding the failure.
+Use `box exec --cwd / NAME -- ls -la` to inspect it, then `box up NAME` to finish.
+An explicit `--cwd` permits diagnostics but does not mark setup complete.
+
+Creation, interrupted live setup and snapshot recovery use the same setup steps:
+working directory, pending initial clones, saved Git identity, then networking.
+Completed clones are never recopied. A pending clone needs its original source
+on the client running `box up`; a missing source leaves setup incomplete. If a
+copy finished but its completion was not recorded, a nonempty destination is
+refused rather than overwritten or assumed complete. Inspect and preserve those
+files before moving the unconfirmed destination aside and retrying.
+
+Failed recovery leaves an existing or restored sandbox alive with its files and
+setup phase retained. A failed first creation is stopped with an exit snapshot.
+A failed network refresh of an already-ready live box does not erase its completed
+setup checkpoint. Missing snapshots are never replaced with an empty environment.
 
 ## Persistence
 
@@ -220,15 +248,130 @@ SSH activity may not reset Modal's idle timer. An optional `idle_timeout` in sec
 or `--idle-timeout` enables it. Closing SSH does not pause a box; run `box pause` to
 stop compute. Resume restarts the network daemon using its saved identity.
 
-## Development
+## WSL, Zscaler and connection troubleshooting
+
+Box uses the host's trusted CAs for Modal gRPC and adds them to Modal's blob HTTP
+client. `SSL_CERT_FILE` and `SSL_CERT_DIR` are respected; certificate and hostname
+verification stay enabled. On managed hosts, use the CA bundle installed by your
+organization rather than disabling verification. The sandbox gRPC channel also
+explicitly negotiates HTTP/2 (`h2`), including when Modal supplies its own TLS context.
+
+Some Windows/WSL resolvers time out on `*.modal.host` even though `api.modal.com`
+works. Box tries system DNS for three seconds, then uses Google's DNS-over-HTTPS
+resolver for **Modal sandbox hostnames only**. The fallback is announced on stderr,
+keeps the original TLS hostname/SNI, and caches answers for at most their TTL or
+60 seconds. No credentials, commands or project files are sent to the DNS resolver.
+Box does not change `/etc/resolv.conf`, `/etc/hosts`, Windows DNS, or proxy settings.
+Configured HTTP/SOCKS proxies retain control of their own routing and DNS.
+Choose the policy per process with `BOX_DNS_OVER_HTTPS`:
+
+| Value | Direct Modal sandbox connections |
+| --- | --- |
+| Unset or `1` | Try system DNS first; use DoH after failure or the three-second timeout. |
+| `force` | Use DoH immediately, skipping the sandbox hostname's system DNS lookup. |
+| `0` | System DNS only; never use DoH or its cached answers. |
 
 ```sh
-uv sync
+BOX_DNS_OVER_HTTPS=force ./result-with-secrets/bin/box exec lf-box -- nix --version
+```
+
+`force` sends public sandbox hostnames to Google even if system DNS would work.
+A DoH failure does not fall back to system DNS in this mode. The existing verified
+HTTPS timeout and DNS cache still apply. This option only controls sandbox hostname
+resolution: `api.modal.com` and `dns.google` still use their normal resolution, and
+configured proxies still own their routing. It does not fix slow TLS handshakes.
+Use `0` if your network policy forbids public DoH; have your administrator repair
+system resolution of `*.modal.host` instead.
+
+Before accessing the registry or acquiring a lock, box performs an authenticated
+Modal API check with a 20-second deadline. Sandbox channel establishment has a
+30-second deadline. These are connection deadlines, not limits on image builds,
+commands or snapshot creation; `up --timeout` still controls the sandbox's lifetime.
+`box doctor` distinguishes connection failures from invalid/missing credentials.
+The compatibility layer targets Modal 1.6.x; test it when upgrading the SDK.
+
+```sh
+box doctor
+box up dev
+box exec dev -- python --version
+box pause dev                   # stop compute; retain files for resume
+box resume dev
+box rm dev --yes                # stop and forget; retain named volumes
+```
+
+If credentials are in this repository's encrypted `.env`, use the secrets-enabled
+launcher (or prefix development commands with
+`dotenvx run --quiet --strict -f .env --`):
+
+```sh
+./result-with-secrets/bin/box doctor
+./result-with-secrets/bin/box up dev
+```
+
+**SSH and Rex still require a working local Tailscale connection.** Modal API access
+does not establish one. If `doctor` reports Tailscale unavailable, sign the host into
+the appropriate tailnet and check its routing/SSH policy. `box exec` works without
+local Tailscale. TLS-inspecting proxies can buffer gRPC stdout until a command exits;
+`--human` cannot force such a proxy to stream. Use Tailscale SSH for interactive
+access, or ask your administrator to allow unbuffered gRPC to Modal's worker hosts.
+
+A CLI killed during earlier attempts may leave a registry lock. Confirm the reported
+owner process has stopped before running `box unlock NAME --force`. Do not remove a
+box just to clear a stale lock; `rm` discards its resume record.
+
+## Development
+
+On Nix, enter the development shell first. It creates and activates a local
+`.venv` using Nix's Python; it does not install into `/nix/store`.
+With direnv, `direnv allow` loads the same shell.
+
+```sh
+nix develop
+uv sync --locked
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv build
 ```
+
+Prefer `uv sync --locked` to install the project and its development dependencies.
+For pip-style dependency installation, run `uv pip install -r pyproject.toml`
+inside the activated shell. Outside it, create and activate a virtual environment
+first (`uv venv && source .venv/bin/activate`). Do not use `--system` or
+`--break-system-packages` with Nix's immutable Python.
+
+To run or build the standalone Nix package (no virtual environment needed):
+
+```sh
+nix run . -- --help
+nix build .
+./result/bin/box --help
+nix flake check
+```
+
+The default Nix package runs the plain CLI. To load the bundled encrypted `.env`:
+
+```sh
+nix run .#with-secrets -- up dev
+nix build .#with-secrets -o result-with-secrets
+./result-with-secrets/bin/box up dev
+```
+
+The launcher uses `dotenvx run --quiet --strict`, forwarding all arguments.
+dotenvx Armor handles decryption at runtime using your existing authentication;
+no `.env.keys` file is required by the launcher. Armor credentials are not bundled
+into the package. The development shell's `with-secrets COMMAND ...` helper uses
+the same mechanism.
+Existing environment variables take precedence; the launcher does not use `-o`.
+Decryption errors stop execution, and dotenvx's normal injection banner is
+suppressed so it does not interfere with JSON output.
+
+The encrypted `.env` is tracked and copied into the Nix store, so the launcher
+works from any directory. Changes to it require rebuilding. Store only encrypted
+secret values and the public key in that file: the Nix store is not private.
+Never add `.env.keys`, private keys, or plaintext secrets to the repository or
+Nix expressions. dotenvx is a runtime dependency of `with-secrets`, not of the
+plain CLI. Decrypted values are supplied only to the app and its children.
 
 Run the opt-in live check with `uv run python scripts/smoke.py`. It verifies actual
 SSH, 1Password authentication, Nix builds, copies, mounted storage, snapshot resume

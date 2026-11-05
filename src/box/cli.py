@@ -12,6 +12,7 @@ import modal
 
 from box import __version__
 from box.config import Config, load_config, name_value, remote_path
+from box.modal_transport import connect
 from box.service import Service, ssh_argv
 
 
@@ -36,6 +37,11 @@ class Context:
                 click.echo(f"{row['name']:<24} {row['status']:<14} {row.get('host', '')}")
         elif "status" in value:
             click.echo(f"{value.get('name', 'box')}: {value['status']}")
+            if value.get("setup") and not value["setup"]["complete"]:
+                click.echo(
+                    f"Setup incomplete at {value['setup']['phase']}; "
+                    f"run box up {value['name']} to finish."
+                )
             if value.get("ssh_command") and value["status"] == "running":
                 click.echo(value["ssh_command"])
             if value.get("rex_url") and value["status"] == "running":
@@ -139,7 +145,7 @@ def up(ctx, name, sources, mounts, cpu, memory, timeout, idle_timeout, tailscale
 @click.argument("name", required=False)
 @click.pass_obj
 def resume(ctx, name):
-    """Resume from the last exit snapshot, without recopying local directories."""
+    """Resume saved files and finish setup; completed clones are never recopied."""
     with redirect_stdout(sys.stderr if ctx.json else sys.stdout):
         value = Service().up(Config(name=ctx.name(name)), resume_only=True)
     ctx.emit(value)
@@ -191,18 +197,35 @@ def ssh(ctx, name, print_only):
     raise SystemExit(subprocess.call(ssh_argv(record)))
 
 
+def exec_cwd(ctx, param, value):
+    if value is None:
+        return None
+    try:
+        return remote_path(value, allow_root=True)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+
 @cli.command("exec", context_settings={"ignore_unknown_options": True})
+@click.option(
+    "--cwd",
+    "-w",
+    callback=exec_cwd,
+    metavar="/PATH",
+    help="Existing remote directory for this command only; allows inspecting incomplete setup.",
+)
 @click.argument("name")
 @click.argument("command", nargs=-1, required=True, type=click.UNPROCESSED)
 @click.pass_obj
-def execute(ctx, name, command):
+def execute(ctx, name, command, cwd):
     """Run COMMAND in NAME; preserve its exit code. Use -- before COMMAND.
 
     box exec dev -- python --version
+    box exec --cwd / dev -- ls -la
     box --json exec dev -- bash -lc 'printf hello'
     box --human exec dev -- npm test  (stream stdout/stderr)
     """
-    value = Service().execute(ctx.name(name), command, capture=ctx.json)
+    value = Service().execute(ctx.name(name), command, capture=ctx.json, cwd=cwd)
     if ctx.json:
         ctx.emit(value)
     raise SystemExit(value["exit_code"])
@@ -298,10 +321,17 @@ def doctor(ctx):
     """Check Modal authentication and the local Tailscale connection."""
     checks = {}
     try:
-        modal.Client.from_env()
+        connect()
         checks["modal"] = "authenticated"
+    except modal.exception.AuthError:
+        checks["modal"] = (
+            "Authentication failed. Check Modal credentials or run: uvx modal token new"
+        )
     except Exception:
-        checks["modal"] = "Authentication failed. Run: uvx modal token new"
+        checks["modal"] = (
+            "Connection check failed. Check VPN/proxy access and the host CA trust "
+            "(SSL_CERT_FILE / SSL_CERT_DIR); this is not necessarily an authentication failure."
+        )
     try:
         p = subprocess.run(
             ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=15

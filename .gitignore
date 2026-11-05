@@ -4,7 +4,7 @@ __pycache__/
 .ruff_cache/
 dist/
 *.egg-info/
-.env
+# .env contains only encrypted values and its public key; it is bundled by Nix.
 .env.keys
 .env.keys.*
 mise.local.toml

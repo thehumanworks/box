@@ -5,7 +5,7 @@ description = "Portable development environments over Tailscale SSH"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "modal>=1.6.3",
+    "modal>=1.6.3,<1.7",
     "click>=8.1,<9",
 ]
 

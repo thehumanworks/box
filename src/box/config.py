@@ -15,7 +15,7 @@ def name_value(value: str) -> str:
     return value
 
 
-def remote_path(value: str) -> str:
+def remote_path(value: str, *, allow_root: bool = False) -> str:
     if (
         not isinstance(value, str)
         or not value.startswith("/")
@@ -23,8 +23,10 @@ def remote_path(value: str) -> str:
         or "\x00" in value
     ):
         raise ValueError("Remote paths must be absolute")
-    if ".." in PurePosixPath(value).parts or str(PurePosixPath(value)) == "/":
-        raise ValueError("Remote paths must not be / or contain '..'")
+    if ".." in PurePosixPath(value).parts:
+        raise ValueError("Remote paths must not contain '..'")
+    if not allow_root and str(PurePosixPath(value)) == "/":
+        raise ValueError("Remote paths must not be /")
     return str(PurePosixPath(value))
 
 

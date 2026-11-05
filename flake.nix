@@ -24,8 +24,42 @@
     in
     {
       packages = forAllSystems (
-        { pkgs, ... }: {
-          default = pkgs.python3Packages.buildPythonApplication {
+        { pkgs, system }:
+        let
+          # nixpkgs currently has Modal 1.6.2; use the release pinned by uv.
+          modalLock = builtins.head (
+            builtins.filter (p: p.name == "modal") (builtins.fromTOML (builtins.readFile ./uv.lock)).package
+          );
+          modal = pkgs.python3Packages.buildPythonPackage {
+            pname = "modal";
+            inherit (modalLock) version;
+            pyproject = true;
+            src = pkgs.fetchurl {
+              inherit (modalLock.sdist) url;
+              hash = modalLock.sdist.hash;
+            };
+            build-system = with pkgs.python3Packages; [
+              setuptools
+              wheel
+            ];
+            inherit (pkgs.python3Packages.modal) dependencies;
+            pythonImportsCheck = [ "modal" ];
+          };
+        in
+        {
+          default = self.packages.${system}.unwrapped;
+
+          with-secrets = pkgs.writeShellApplication {
+            name = "box";
+            text = ''
+              exec ${pkgs.dotenvx}/bin/dotenvx run --quiet --strict \
+                -f ${./.env} \
+                -- ${self.packages.${system}.unwrapped}/bin/box "$@"
+            '';
+            meta.description = "Box with bundled encrypted secrets resolved by dotenvx Armor at runtime";
+          };
+
+          unwrapped = pkgs.python3Packages.buildPythonApplication {
             pname = project.name;
             inherit (project) version;
             pyproject = true;
@@ -33,20 +67,34 @@
               root = ./.;
               fileset = pkgs.lib.fileset.unions [
                 ./pyproject.toml
+                ./README.md
                 ./src
                 ./tests
               ];
             };
             build-system = [ pkgs.python3Packages.hatchling ];
-            # Add Nix runtime dependencies here when the project grows.
-            dependencies = [ ];
+            dependencies = [
+              modal
+              pkgs.python3Packages.click
+            ];
+            nativeCheckInputs = [
+              pkgs.python3Packages.pytestCheckHook
+              pkgs.git
+            ];
             doCheck = true;
-            checkPhase = ''
-              runHook preCheck
-              PYTHONPATH=src python -m unittest discover -s tests -v
-              runHook postCheck
+            preCheck = ''
+              # The remote Debian paths do not exist in the Nix build sandbox.
+              # Patch only the test/source tree after installation, not the package.
+              substituteInPlace tests/test_environment.py tests/test_home_manager.py tests/test_lifecycle.py \
+                src/box/environment.py src/box/service.py \
+                --replace-warn /bin/bash ${pkgs.bash}/bin/bash \
+                --replace-warn /usr/bin/env ${pkgs.coreutils}/bin/env
+              export PYTHONPATH="$PWD/src:$PYTHONPATH"
             '';
-            pythonImportsCheck = [ "box" ];
+            pythonImportsCheck = [
+              "box"
+              "box.cli"
+            ];
             meta.mainProgram = "box";
           };
         }
@@ -56,8 +104,13 @@
         { system, ... }: {
           default = {
             type = "app";
-            meta.description = "uv example application";
+            meta.description = "Modal sandboxes for humans and agents";
             program = "${self.packages.${system}.default}/bin/box";
+          };
+          with-secrets = {
+            type = "app";
+            meta.description = "Box with bundled encrypted secrets";
+            program = "${self.packages.${system}.with-secrets}/bin/box";
           };
         }
       );
@@ -72,7 +125,14 @@
               pkgs.dotenvx
               (import ./nix/secrets.nix { inherit pkgs; })
             ];
-            UV_PYTHON = "${pkgs.python3}/bin/python3";
+            shellHook = ''
+              # Keep pip-style commands away from the immutable Nix interpreter.
+              unset UV_PYTHON
+              if [ ! -d .venv ]; then
+                uv venv --python "${pkgs.python3}/bin/python3" .venv
+              fi
+              source .venv/bin/activate
+            '';
             UV_PYTHON_DOWNLOADS = "never";
             UV_LINK_MODE = "copy";
             PYTHONNOUSERSITE = "1";

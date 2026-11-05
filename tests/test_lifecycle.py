@@ -230,7 +230,12 @@ def test_reconnect_running_sandbox_does_not_create_or_snapshot(lifecycle):
     second = lifecycle.service.up(Config())
     assert second["sandbox_id"] == first["sandbox_id"]
     assert len(lifecycle.provider.creations) == 1
-    assert not lifecycle.provider.sandboxes[first["sandbox_id"]].snapshot_requests
+    sb = lifecycle.provider.sandboxes[first["sandbox_id"]]
+    assert not sb.snapshot_requests
+    assert sb.exec_calls == [
+        (("mkdir", "-p", "--", "/workspace"), {"workdir": "/"}),
+        (("mkdir", "-p", "--", "/workspace"), {"workdir": "/"}),
+    ]
 
 
 def test_setup_failure_persists_handle_before_network_and_releases_lock(lifecycle, monkeypatch):
@@ -384,6 +389,7 @@ def test_execute_preserves_argv_and_remote_exit_output(lifecycle):
     invoked, options = sb.exec_calls[-1]
     assert invoked[:2] == ("/bin/bash", "-c")
     assert invoked[4:] == argv
+    assert "mkdir" not in invoked[2]
     assert options == {"workdir": "/workspace/a b", "timeout": 42}
 
 
@@ -393,7 +399,10 @@ def test_inherited_git_identity_targets_writable_file(lifecycle, monkeypatch):
     created = lifecycle.service.up(Config())
     calls = lifecycle.provider.sandboxes[created["sandbox_id"]].exec_calls
     for key, value in identity.items():
-        assert (("git", "config", "--file", "/root/.gitconfig", key, value), {}) in calls
+        assert (
+            ("git", "config", "--file", "/root/.gitconfig", key, value),
+            {"workdir": "/"},
+        ) in calls
 
 
 def test_ssh_working_directory_is_quoted_as_one_shell_argument():
@@ -401,3 +410,364 @@ def test_ssh_working_directory_is_quoted_as_one_shell_argument():
     args = service.ssh_argv({"host": "100.64.0.2", "config": {"workdir": path}})
     assert args[-2] == "root@100.64.0.2"
     assert shlex.split(args[-1]) == ["cd", "--", path, "&&", "exec", "bash", "-l"]
+
+
+def interrupted_box(state, config=None):
+    """A process died after saving the provider handle, before setup completed."""
+    config = (config or Config()).validate()
+    sb = state.provider.create(image=state.provider.base)
+    state.registry.save(
+        {
+            "name": config.name,
+            "config": config.to_dict(),
+            "sandbox_id": sb.object_id,
+            "hostname": "box-dev-test",
+            "status": "starting",
+            "cloned": [],
+        }
+    )
+    return sb
+
+
+def test_live_interrupted_box_is_not_ready_and_cwd_allows_only_explicit_inspection(
+    lifecycle, capsys
+):
+    sb = interrupted_box(lifecycle)
+    before = lifecycle.registry.get("dev")
+    status = lifecycle.service.status("dev")
+    assert status["status"] == "setup-incomplete"
+    assert status["setup"]["complete"] is False
+    with pytest.raises(ValueError, match=r"setup is incomplete.*box up dev.*--cwd /"):
+        lifecycle.service.execute("dev", ("pwd",), capture=True)
+    assert sb.exec_calls == []
+    lifecycle.service.execute("dev", ("pwd",), capture=True, cwd="/")
+    assert sb.exec_calls[-1][1]["workdir"] == "/"
+    assert "mkdir" not in sb.exec_calls[-1][0][2]
+    assert "setup is incomplete" in capsys.readouterr().err
+    # Neither status nor diagnostic exec can promote or mutate the record.
+    assert lifecycle.registry.get("dev") == before
+    ready = lifecycle.service.up(Config())
+    assert ready["status"] == "running"
+    assert ready["setup"]["complete"] is True
+    assert ready["sandbox_id"] == sb.object_id
+    assert len(lifecycle.provider.creations) == 1
+    assert not sb.terminate_calls
+    lifecycle.service.execute("dev", ("pwd",), capture=True)
+    assert sb.exec_calls[-1][1]["workdir"] == "/workspace"
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_recovery_completes_pending_clones_without_requiring_completed_sources(
+    lifecycle, monkeypatch, tmp_path, stopped
+):
+    pending = tmp_path / "pending"
+    pending.mkdir()
+    config = Config(
+        clones=[
+            {"source": str(tmp_path / "deleted-source"), "destination": "/workspace/done"},
+            {"source": str(pending), "destination": "/workspace/pending"},
+        ]
+    )
+    old = interrupted_box(lifecycle, config)
+    old.files["/workspace/done/edited"] = "keep user edits"
+    record = lifecycle.registry.get("dev")
+    record["cloned"] = ["/workspace/done"]
+    lifecycle.registry.save(record)
+    if stopped:
+        old.code = 124
+    copies = []
+
+    def copy(sb, source, destination, **kwargs):
+        copies.append(destination)
+        assert not kwargs.get("overwrite", False)
+        sb.files[destination + "/copied"] = "copied"
+
+    monkeypatch.setattr(transfer, "copy_to", copy)
+    ready = lifecycle.service.up(Config(), resume_only=True)
+    sb = lifecycle.provider.sandboxes[ready["sandbox_id"]]
+    assert copies == ["/workspace/pending"]
+    assert sb.files["/workspace/done/edited"] == "keep user edits"
+    assert ready["cloned"] == ["/workspace/done", "/workspace/pending"]
+    assert ready["setup"]["complete"]
+    assert bool(sb is not old) == stopped
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_missing_pending_source_keeps_live_or_restored_box_and_reports_phase(
+    lifecycle, tmp_path, stopped
+):
+    sb = interrupted_box(
+        lifecycle,
+        Config(
+            clones=[
+                {"source": str(tmp_path / "absent"), "destination": "/workspace/pending"},
+            ]
+        ),
+    )
+    sb.files["/workspace/user-work"] = "never lose this"
+    if stopped:
+        sb.code = 0
+    with pytest.raises(ValueError, match="source is unavailable.*original client"):
+        lifecycle.service.up(Config())
+    record = lifecycle.registry.get("dev")
+    current = lifecycle.provider.sandboxes[record["sandbox_id"]]
+    assert current.poll() is None
+    assert not current.terminate_calls
+    assert current.files["/workspace/user-work"] == "never lose this"
+    assert record["setup"]["phase"] == "clones"
+    assert record["setup"]["complete"] is False
+    assert lifecycle.service.status("dev")["status"] == "setup-incomplete"
+    assert "lock:dev" not in lifecycle.data.values
+
+
+@pytest.mark.parametrize("phase", ["workdir", "clones", "git", "network"])
+@pytest.mark.parametrize("exception_type", [RuntimeError, KeyboardInterrupt])
+def test_fresh_creation_checkpoints_each_failed_phase_and_preserves_snapshot(
+    lifecycle, monkeypatch, tmp_path, phase, exception_type
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    config = Config(clones=[{"source": str(source), "destination": "/workspace/repo"}])
+    monkeypatch.setattr(service, "git_identity", lambda: {"user.name": "Original Author"})
+    original_exec = Sandbox.exec
+
+    def fail():
+        record = lifecycle.registry.get("dev")
+        assert record["setup"]["phase"] == phase
+        assert record["setup"]["complete"] is False
+        assert record["status"] == "starting"
+        raise exception_type("injected failure")
+
+    def execute(sb, *args, **kwargs):
+        if (phase == "workdir" and args[0] == "mkdir") or (phase == "git" and args[0] == "git"):
+            fail()
+        return original_exec(sb, *args, **kwargs)
+
+    monkeypatch.setattr(Sandbox, "exec", execute)
+    monkeypatch.setattr(transfer, "copy_to", lambda *a, **k: fail() if phase == "clones" else None)
+    if phase == "network":
+        monkeypatch.setattr(environment, "start_network", lambda *a, **k: fail())
+    surfaced = (
+        ValueError if phase == "clones" and exception_type is RuntimeError else exception_type
+    )
+    with pytest.raises(surfaced, match="injected failure"):
+        lifecycle.service.up(config)
+    record = lifecycle.registry.get("dev")
+    sb = lifecycle.provider.sandboxes[record["sandbox_id"]]
+    assert record["status"] == "setup-failed"
+    assert record["setup"]["phase"] == phase
+    assert record["setup"]["complete"] is False
+    assert sb.terminate_calls == [True]
+    assert record["git_identity"] == {"user.name": "Original Author"}
+    assert "lock:dev" not in lifecycle.data.values
+
+
+def test_completed_but_uncheckpointed_clone_is_not_overwritten_or_assumed_ready(
+    lifecycle, monkeypatch, tmp_path
+):
+    source, destination = tmp_path / "source", tmp_path / "remote-repo"
+    source.mkdir()
+    (source / "file").write_text("source contents")
+    archive = tmp_path / "archive.tar"
+    transfer._pack(source, archive, ())
+    transfer._extract(archive, destination, False)
+    (destination / "file").write_text("remote edits after ambiguous copy")
+    sb = interrupted_box(
+        lifecycle,
+        Config(
+            clones=[
+                {"source": str(source), "destination": "/workspace/repo"},
+            ]
+        ),
+    )
+
+    def copy(*args, **kwargs):
+        assert not kwargs.get("overwrite", False)
+        transfer._extract(archive, destination, False)
+
+    monkeypatch.setattr(transfer, "copy_to", copy)
+    with pytest.raises(ValueError, match="not confirmed complete.*will not be overwritten"):
+        lifecycle.service.up(Config())
+    assert (destination / "file").read_text() == "remote edits after ambiguous copy"
+    assert lifecycle.registry.get("dev")["cloned"] == []
+    assert not sb.terminate_calls
+    assert not lifecycle.registry.get("dev")["setup"]["complete"]
+
+
+def test_git_identity_checkpoint_survives_failure_and_is_not_reapplied_on_resume(
+    lifecycle, monkeypatch
+):
+    identity = {"user.name": "Original Author", "user.email": "original@example.test"}
+    monkeypatch.setattr(service, "git_identity", lambda: identity)
+    network = environment.start_network
+    monkeypatch.setattr(
+        environment,
+        "start_network",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("network unavailable")),
+    )
+    with pytest.raises(RuntimeError):
+        lifecycle.service.up(Config())
+    record = lifecycle.registry.get("dev")
+    assert record["setup"]["git_applied"] is True
+    assert record["git_identity"] == identity
+    monkeypatch.setattr(environment, "start_network", network)
+    monkeypatch.setattr(service, "git_identity", lambda: pytest.fail("must use saved identity"))
+    ready = lifecycle.service.up(Config(), resume_only=True)
+    sb = lifecycle.provider.sandboxes[ready["sandbox_id"]]
+    assert not any(args[0] == "git" for args, _ in sb.exec_calls)
+    assert "git_identity" not in ready
+
+
+@pytest.mark.parametrize("legacy_status", ["running", "paused", "starting", "setup-failed"])
+@pytest.mark.parametrize("clones_done", [False, True])
+def test_legacy_readiness_requires_saved_completion_and_clone_ledger(
+    lifecycle, legacy_status, clones_done
+):
+    interrupted_box(
+        lifecycle,
+        Config(
+            clones=[
+                {"source": "/unavailable", "destination": "/workspace/repo"},
+            ]
+        ),
+    )
+    record = lifecycle.registry.get("dev")
+    record.update(status=legacy_status, host="100.64.0.2")
+    if clones_done:
+        record["cloned"] = ["/workspace/repo"]
+    lifecycle.registry.save(record)
+    expected = clones_done and legacy_status in {"running", "paused"}
+    assert lifecycle.service.require("dev")["setup"]["complete"] == expected
+    assert "setup" not in lifecycle.registry.get("dev")  # no writes during reads
+
+
+def test_unknown_setup_version_is_not_silently_downgraded(lifecycle):
+    interrupted_box(lifecycle)
+    record = lifecycle.registry.get("dev")
+    record["setup"] = {"version": 999, "complete": True}
+    lifecycle.registry.save(record)
+    with pytest.raises(ValueError, match="Unsupported box setup version"):
+        lifecycle.service.up(Config())
+    assert lifecycle.registry.get("dev")["setup"]["version"] == 999
+    assert "lock:dev" not in lifecycle.data.values
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_exec_missing_cwd_preserves_failure_adds_advice_and_never_retries(
+    lifecycle, capture, capsys
+):
+    created = lifecycle.service.up(Config())
+    sb = lifecycle.provider.sandboxes[created["sandbox_id"]]
+    sb.exec_calls.clear()
+    diagnostic = 'failed to find initial working directory "/missing": no such file or directory\n'
+    sb.command_result = Process(128, "", diagnostic)
+    before = lifecycle.registry.get("dev")
+    response = lifecycle.service.execute("dev", ("false",), cwd="/missing", capture=capture)
+    assert response["exit_code"] == 128
+    stderr = response["stderr"] if capture else capsys.readouterr().err
+    assert diagnostic in stderr
+    assert "box exec --cwd / dev" in stderr
+    assert "No directory was created" in stderr
+    assert len(sb.exec_calls) == 1
+    assert sb.exec_calls[0][1]["workdir"] == "/missing"
+    assert "mkdir" not in sb.exec_calls[0][0][2]
+    assert lifecycle.registry.get("dev") == before
+
+
+def test_refresh_failure_does_not_erase_completed_setup(lifecycle, monkeypatch):
+    created = lifecycle.service.up(Config())
+    before = lifecycle.registry.get("dev")
+    sb = lifecycle.provider.sandboxes[created["sandbox_id"]]
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("network refresh failed")
+
+    monkeypatch.setattr(environment, "start_network", unavailable)
+    with pytest.raises(RuntimeError, match="network refresh failed"):
+        lifecycle.service.up(Config())
+    assert lifecycle.registry.get("dev") == before
+    assert lifecycle.service.execute("dev", ("true",), capture=True)["exit_code"] == 0
+    assert not sb.terminate_calls
+
+
+@pytest.mark.parametrize("saved_snapshot", [False, True])
+def test_resume_missing_provider_handle_uses_only_a_saved_snapshot(lifecycle, saved_snapshot):
+    first = lifecycle.service.up(Config())
+    if saved_snapshot:
+        lifecycle.service.pause("dev")
+    before = lifecycle.registry.get("dev")
+    del lifecycle.provider.sandboxes[first["sandbox_id"]]
+    if saved_snapshot:
+        # The test provider derives IDs from count; ensure its new ID differs.
+        lifecycle.provider.sandboxes["sb-unused"] = object()
+        resumed = lifecycle.service.up(Config(), resume_only=True)
+        assert resumed["status"] == "running"
+        assert resumed["previous_sandbox_id"] == first["sandbox_id"]
+    else:
+        with pytest.raises(ValueError, match="No replacement was created"):
+            lifecycle.service.up(Config(), resume_only=True)
+        assert lifecycle.registry.get("dev") == before
+        assert len(lifecycle.provider.creations) == 1
+
+
+def test_restored_incomplete_setup_does_not_advertise_old_endpoints(lifecycle, monkeypatch):
+    lifecycle.service.up(Config())
+    lifecycle.service.pause("dev")
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("network setup failed")
+
+    monkeypatch.setattr(environment, "start_network", unavailable)
+    with pytest.raises(RuntimeError):
+        lifecycle.service.up(Config(), resume_only=True)
+    status = lifecycle.service.status("dev")
+    assert status["status"] == "setup-incomplete"
+    assert "host" not in status and "ssh_command" not in status
+    assert status["setup"]["complete"] is False
+
+
+def test_legacy_record_without_clone_ledger_recovers(lifecycle):
+    interrupted_box(lifecycle)
+    record = lifecycle.registry.get("dev")
+    del record["cloned"]
+    lifecycle.registry.save(record)
+    ready = lifecycle.service.up(Config())
+    assert ready["status"] == "running"
+    assert ready["cloned"] == []
+
+
+def test_partial_git_application_retries_the_saved_identity(lifecycle, monkeypatch):
+    identity = {"user.name": "Original Author", "user.email": "original@example.test"}
+    monkeypatch.setattr(service, "git_identity", lambda: identity)
+    original = Sandbox.exec
+    failed = False
+
+    def fail_once(sb, *args, **kwargs):
+        nonlocal failed
+        if args[0] == "git" and "user.email" in args and not failed:
+            failed = True
+            return Process(1)
+        return original(sb, *args, **kwargs)
+
+    monkeypatch.setattr(Sandbox, "exec", fail_once)
+    with pytest.raises(ValueError, match="Cannot apply Git"):
+        lifecycle.service.up(Config())
+    before = lifecycle.registry.get("dev")
+    assert not before["setup"]["git_applied"]
+    monkeypatch.setattr(service, "git_identity", lambda: pytest.fail("must not read new author"))
+    ready = lifecycle.service.up(Config(), resume_only=True)
+    sb = lifecycle.provider.sandboxes[ready["sandbox_id"]]
+    for key, value in identity.items():
+        assert (
+            ("git", "config", "--file", "/root/.gitconfig", key, value),
+            {"workdir": "/"},
+        ) in sb.exec_calls
+    assert ready["setup"]["git_applied"]
+
+
+def test_exec_invalid_cwd_fails_before_provider_access(lifecycle, monkeypatch):
+    monkeypatch.setattr(
+        lifecycle.service, "running", lambda *a, **k: pytest.fail("provider access")
+    )
+    with pytest.raises(ValueError, match="absolute"):
+        lifecycle.service.execute("dev", ("pwd",), cwd="relative")

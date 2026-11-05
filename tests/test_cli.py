@@ -41,8 +41,8 @@ class CommandService:
             raise self.error
         return {"name": name, "status": "running", "host": "100.64.0.2"}
 
-    def execute(self, name, command, *, capture):
-        self.calls.append((name, command, capture))
+    def execute(self, name, command, *, capture, cwd=None):
+        self.calls.append((name, command, capture, cwd))
         if self.error:
             raise self.error
         return self.execute_result
@@ -130,7 +130,7 @@ def test_remote_arguments_cannot_change_error_output_mode(
         ]
     )
     assert code == 1
-    assert commands.calls == [("dev", ("printf", remote_flag), as_json)]
+    assert commands.calls == [("dev", ("printf", remote_flag), as_json, None)]
     if as_json:
         assert json.loads(stdout)["error"]["message"] == "box is paused"
         assert stderr == ""
@@ -146,7 +146,7 @@ def test_exec_preserves_remote_exit_and_arguments(commands, exit_code):
     code, stdout, stderr = invoke_main(["--json", "exec", "dev", "--", *args])
     assert code == exit_code
     assert json.loads(stdout) == commands.execute_result
-    assert commands.calls == [("dev", args, True)]
+    assert commands.calls == [("dev", args, True, None)]
     assert stderr == ""
 
 
@@ -154,8 +154,57 @@ def test_human_exec_requests_streaming_and_preserves_exit(commands):
     commands.execute_result = {"exit_code": 9}
     code, stdout, stderr = invoke_main(["--human", "exec", "dev", "--", "false"])
     assert code == 9
-    assert commands.calls == [("dev", ("false",), False)]
+    assert commands.calls == [("dev", ("false",), False, None)]
     assert stdout == stderr == ""
+
+
+@pytest.mark.parametrize("flag", ["--cwd", "-w"])
+@pytest.mark.parametrize("path,normalized", [("/", "/"), ("/workspace//a b/", "/workspace/a b")])
+def test_exec_cwd_is_a_command_only_override(commands, flag, path, normalized):
+    code, stdout, stderr = invoke_main(["exec", flag, path, "dev", "--", "pwd"])
+    assert code == 0
+    assert json.loads(stdout)["exit_code"] == 0
+    assert commands.calls == [("dev", ("pwd",), True, normalized)]
+    assert stderr == ""
+
+
+@pytest.mark.parametrize("path", ["", "relative", "//server/path", "/a/../b", "/a\x00b"])
+def test_invalid_exec_cwd_is_a_usage_error_before_service_initialization(monkeypatch, path):
+    monkeypatch.setattr(cli_module, "Service", lambda: pytest.fail("must stay offline"))
+    code, stdout, _ = invoke_main(["exec", "--cwd", path, "dev", "--", "pwd"])
+    assert code == 2
+    assert "--cwd" in json.loads(stdout)["error"]["message"]
+
+
+def test_remote_cwd_flags_after_separator_are_never_consumed(commands):
+    args = ("some-command", "--cwd", "/remote-argument", "-w", "literal")
+    code, _, _ = invoke_main(["exec", "-w", "/", "dev", "--", *args])
+    assert code == 0
+    assert commands.calls == [("dev", args, True, "/")]
+
+
+def test_exec_help_advertises_cwd_without_provider_access(monkeypatch):
+    monkeypatch.setattr(cli_module, "Service", lambda: pytest.fail("help must stay offline"))
+    code, stdout, stderr = invoke_main(["exec", "--help"])
+    assert code == 0
+    assert "--cwd" in stdout and "-w" in stdout
+    assert stderr == ""
+
+
+def test_human_status_explains_incomplete_setup(commands, monkeypatch):
+    monkeypatch.setattr(
+        commands,
+        "status",
+        lambda name: {
+            "name": name,
+            "status": "setup-incomplete",
+            "setup": {"complete": False, "phase": "clones"},
+        },
+    )
+    code, stdout, stderr = invoke_main(["--human", "status", "dev"])
+    assert code == 0
+    assert "Setup incomplete at clones; run box up dev to finish." in stdout
+    assert stderr == ""
 
 
 def test_resume_uses_explicit_name_without_loading_unrelated_config(commands, tmp_path):
@@ -287,4 +336,35 @@ def test_help_does_not_initialize_modal(monkeypatch):
     code, stdout, stderr = invoke_main(["--help"])
     assert code == 0
     assert "Portable development environments" in stdout
+    assert stderr == ""
+
+
+@pytest.mark.parametrize("failure", [None, "auth", "connection"])
+def test_doctor_checks_auth_and_distinguishes_connectivity(monkeypatch, tmp_path, failure):
+    from types import SimpleNamespace
+
+    monkeypatch.chdir(tmp_path)
+
+    def connect():
+        if failure == "auth":
+            raise cli_module.modal.exception.AuthError("invalid token")
+        if failure == "connection":
+            raise TimeoutError("private provider diagnostic")
+
+    monkeypatch.setattr(cli_module, "connect", connect)
+    monkeypatch.setattr(
+        cli_module.subprocess,
+        "run",
+        lambda *a, **kw: SimpleNamespace(stdout='{"BackendState": "Running"}'),
+    )
+    code, stdout, stderr = invoke_main(["--json", "doctor"])
+    value = json.loads(stdout)
+    assert code == (1 if failure else 0)
+    if failure == "auth":
+        assert "Authentication failed" in value["modal"]
+    elif failure == "connection":
+        assert "Connection check failed" in value["modal"]
+        assert "private provider diagnostic" not in stdout
+    else:
+        assert value["modal"] == "authenticated"
     assert stderr == ""

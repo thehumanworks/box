@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 
 import modal
 
+from box.modal_transport import connect
+
 APP_NAME = "box-dev"
 REGISTRY_NAME = "box-dev-registry-v1"
 
@@ -17,6 +19,10 @@ def timestamp():
 
 class Registry:
     def __init__(self, data=None):
+        if data is None:
+            # Fail before taking locks or starting billable work when API access
+            # is blocked. Also configures trust for all subsequent SDK channels.
+            connect()
         self.data = (
             data
             if data is not None

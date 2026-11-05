@@ -167,7 +167,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1,<9" },
-    { name = "modal", specifier = ">=1.6.3" },
+    { name = "modal", specifier = ">=1.6.3,<1.7" },
 ]
 
 [package.metadata.requires-dev]

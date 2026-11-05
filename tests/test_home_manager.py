@@ -31,15 +31,25 @@ def test_locked_home_configuration_has_one_nixpkgs_and_no_runtime_secrets():
         assert "builtins.readFile" not in source
 
 
-def test_remote_exec_loads_environment_and_preserves_literal_arguments(tmp_path, monkeypatch):
+@pytest.mark.parametrize("directory_state", ["existing", "missing", "file"])
+def test_remote_exec_loads_environment_and_preserves_literal_arguments(
+    tmp_path, monkeypatch, directory_state
+):
     bridge = tmp_path / "profile.sh"
     bridge.write_text("export BOX_ENV_TEST=from-home-manager\n")
     marker = tmp_path / "unexpected"
+    workdir = tmp_path / "work space; $(false) 'quoted'"
+    if directory_state == "existing":
+        workdir.mkdir()
+        (workdir / "keep.txt").write_text("keep existing files")
+    elif directory_state == "file":
+        workdir.write_text("do not replace")
     literal = [f"$(touch {marker})", ";", "", "a b", "single'quote", 'double"quote']
     command = [
         sys.executable,
         "-c",
-        "import json,os,sys; print(json.dumps([os.environ['BOX_ENV_TEST'], sys.argv[1:]]))",
+        "import json,os,sys; "
+        "print(json.dumps([os.environ['BOX_ENV_TEST'], sys.argv[1:], os.getcwd()]))",
         *literal,
     ]
 
@@ -59,11 +69,21 @@ def test_remote_exec_loads_environment_and_preserves_literal_arguments(tmp_path,
     monkeypatch.setattr(
         service,
         "running",
-        lambda name: ({"config": {"workdir": str(tmp_path)}}, LocalSandbox()),
+        lambda name, **kwargs: ({"config": {"workdir": str(workdir)}}, LocalSandbox()),
     )
-    result = service.execute("dev", command, capture=True)
-    assert result["exit_code"] == 0, result
-    assert json.loads(result["stdout"]) == ["from-home-manager", literal]
+    if directory_state == "existing":
+        result = service.execute("dev", command, capture=True)
+        assert result["exit_code"] == 0, result
+        assert json.loads(result["stdout"]) == ["from-home-manager", literal, str(workdir)]
+        assert (workdir / "keep.txt").read_text() == "keep existing files"
+    else:
+        # Local subprocess chdir fails before launching, just as Modal must.
+        with pytest.raises((FileNotFoundError, NotADirectoryError)):
+            service.execute("dev", command, capture=True)
+        if directory_state == "file":
+            assert workdir.read_text() == "do not replace"
+        else:
+            assert not workdir.exists()
     assert not marker.exists()
 
 
