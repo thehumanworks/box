@@ -1,0 +1,43 @@
+{
+  "name": "box-smoke-bbe66022",
+  "volume": "box-smoke-bbe66022-data",
+  "checks": [
+    "Rex terminfo/SSH guard and credential-free daemon environments",
+    "Rex HTTPS identity, terminal, shell and 1Password (initial)",
+    "tools and initial clone"
+  ],
+  "local_rex_version": "rex 0.0.1793741575-g1b6654\ncommit: 1b6654811346488b696ded8f3c7e6701c57242f1\nbuilt: 2026-11-03T21:32:55Z\napi: revision 10 (supports 0 to 10)",
+  "initial": {
+    "name": "box-smoke-bbe66022",
+    "created_at": "2026-11-04T22:30:19.785779+00:00",
+    "hostname": "box-box-smoke-bbe66022-40e51abb",
+    "cloned": [
+      "/workspace"
+    ],
+    "snapshot_on_exit": true,
+    "sandbox_id": "sb-01M6MAZTDNQAF1YPQR7SGF7YAV",
+    "status": "running",
+    "updated_at": "2026-11-04T22:31:46.856981+00:00",
+    "host": "100.116.72.101",
+    "tailscale_ip": "100.116.72.101",
+    "rex_url": "https://rex-box-box-smoke-bbe66022-40e51abb.tail9441c0.ts.net",
+    "rex_hostname": "rex-box-box-smoke-bbe66022-40e51abb.tail9441c0.ts.net",
+    "rex_host_id": "91c91900-210a-49a4-9492-bb278db7b28e",
+    "workdir": "/workspace",
+    "volumes": {
+      "/mnt/data": "box-smoke-bbe66022-data"
+    },
+    "ssh_command": "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -t root@100.116.72.101 'cd -- /workspace && exec bash -l'"
+  },
+  "rex": {
+    "initial": {
+      "url": "https://rex-box-box-smoke-bbe66022-40e51abb.tail9441c0.ts.net",
+      "host_id": "91c91900-210a-49a4-9492-bb278db7b28e",
+      "version": "0.1.0-preview.13",
+      "terminal_output": "/root/.nix-profile/bin/nix\n/root/.nix-profile/bin/mise\n/root/.nix-profile/bin/op\n/root/.nix-profile/bin/rex\nrex-terminal-proof-b6a53f174a164610b37448df10e37d6c\n"
+    }
+  },
+  "tools": "nix (Determinate Nix 3.24.1) 2.35.3\n2026.10.17 linux-x64 (1980-01-01)\n2.41.1\nrex 0.1.0-preview.13\ncommit: 1b6654811346488b696ded8f3c7e6701c57242f1\nbuilt: 2026-11-03T21:32:55Z\napi: revision 10 (supports 0 to 10)\ngit version 2.56.0\nPython 3.14.8\nv24.21.0\nuv 0.13.5 (x86_64-unknown-linux-gnu)\n",
+  "success": false,
+  "cleanup": "owned sandbox removal attempted, volume deleted"
+}

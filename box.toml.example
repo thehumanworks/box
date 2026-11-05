@@ -1,0 +1,16 @@
+name = "dev"
+workdir = "/workspace"
+cpu = 2
+memory = 4096
+timeout = 86400
+tailscale_secret = "tailscale"
+secrets = ["1password"]
+
+[[clones]]
+source = "."
+destination = "/workspace"
+exclude = ["dist", ".env"]
+
+# Optional durable storage, separate from exit snapshots.
+# [volumes]
+# "/mnt/data" = "my-project-data"

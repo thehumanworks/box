@@ -1,0 +1,118 @@
+{
+  "name": "box-rex-smoke-018962fe",
+  "checks": [
+    "Rex HTTPS identity, terminal, shell and 1Password (initial)",
+    "Rex terminfo/SSH guard and credential-free daemon environments",
+    "Rex and SSH identities plus marker preserved (manual pause)",
+    "Rex HTTPS identity, terminal, shell and 1Password (manual pause)",
+    "Rex and SSH identities plus marker preserved (direct termination)",
+    "actual 120-second lifetime expiry",
+    "Rex and SSH identities plus marker preserved (lifetime expiry)",
+    "Rex HTTPS identity, terminal, shell and 1Password (lifetime expiry)"
+  ],
+  "success": true,
+  "records": {
+    "initial": {
+      "name": "box-rex-smoke-018962fe",
+      "created_at": "2026-11-04T22:34:27.646480+00:00",
+      "hostname": "box-box-rex-smoke-018962fe-56f893ff",
+      "cloned": [],
+      "snapshot_on_exit": true,
+      "sandbox_id": "sb-01M6MB69JDEXXWVP5PR8422TEW",
+      "status": "running",
+      "updated_at": "2026-11-04T22:35:15.733242+00:00",
+      "host": "100.101.224.17",
+      "tailscale_ip": "100.101.224.17",
+      "rex_url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_hostname": "rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "workdir": "/workspace",
+      "volumes": {},
+      "ssh_command": "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -t root@100.101.224.17 'cd -- /workspace && exec bash -l'"
+    },
+    "manual pause": {
+      "name": "box-rex-smoke-018962fe",
+      "created_at": "2026-11-04T22:34:27.646480+00:00",
+      "hostname": "box-box-rex-smoke-018962fe-56f893ff",
+      "cloned": [],
+      "snapshot_on_exit": true,
+      "sandbox_id": "sb-01M6MB82QC6P7R57S0MCDHZV5X",
+      "status": "running",
+      "updated_at": "2026-11-04T22:35:40.106281+00:00",
+      "host": "100.101.224.17",
+      "tailscale_ip": "100.101.224.17",
+      "rex_url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_hostname": "rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "previous_sandbox_id": "sb-01M6MB69JDEXXWVP5PR8422TEW",
+      "previous_snapshot_id": "im-01M6MB804C7D7W0WB2H8EWG0B4",
+      "workdir": "/workspace",
+      "volumes": {},
+      "ssh_command": "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -t root@100.101.224.17 'cd -- /workspace && exec bash -l'"
+    },
+    "direct termination": {
+      "name": "box-rex-smoke-018962fe",
+      "created_at": "2026-11-04T22:34:27.646480+00:00",
+      "hostname": "box-box-rex-smoke-018962fe-56f893ff",
+      "cloned": [],
+      "snapshot_on_exit": true,
+      "sandbox_id": "sb-01M6MB8RV30BMCS1VKE2C6D2M7",
+      "status": "running",
+      "updated_at": "2026-11-04T22:36:02.703194+00:00",
+      "host": "100.101.224.17",
+      "tailscale_ip": "100.101.224.17",
+      "rex_url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_hostname": "rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "previous_sandbox_id": "sb-01M6MB82QC6P7R57S0MCDHZV5X",
+      "previous_snapshot_id": "im-01M6MB8PQEG4TWY18FVVDSGKEH",
+      "workdir": "/workspace",
+      "volumes": {},
+      "ssh_command": "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -t root@100.101.224.17 'cd -- /workspace && exec bash -l'"
+    },
+    "lifetime expiry": {
+      "name": "box-rex-smoke-018962fe",
+      "created_at": "2026-11-04T22:34:27.646480+00:00",
+      "hostname": "box-box-rex-smoke-018962fe-56f893ff",
+      "cloned": [],
+      "snapshot_on_exit": true,
+      "sandbox_id": "sb-01M6MBCNJHG006N0AYTWJ1W01P",
+      "status": "running",
+      "updated_at": "2026-11-04T22:38:10.617707+00:00",
+      "host": "100.101.224.17",
+      "tailscale_ip": "100.101.224.17",
+      "rex_url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_hostname": "rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "rex_host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "previous_sandbox_id": "sb-01M6MB8RV30BMCS1VKE2C6D2M7",
+      "previous_snapshot_id": "im-01M6MBCK7SRAY0VNBF40M4RVCQ",
+      "workdir": "/workspace",
+      "volumes": {},
+      "ssh_command": "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -t root@100.101.224.17 'cd -- /workspace && exec bash -l'"
+    }
+  },
+  "local_rex_version": "rex 0.0.1793741575-g1b6654\ncommit: 1b6654811346488b696ded8f3c7e6701c57242f1\nbuilt: 2026-11-03T21:32:55Z\napi: revision 10 (supports 0 to 10)",
+  "rex": {
+    "initial": {
+      "url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "version": "0.1.0-preview.13",
+      "terminal_output": "/root/.nix-profile/bin/nix\n/root/.nix-profile/bin/mise\n/root/.nix-profile/bin/op\n/root/.nix-profile/bin/rex\nrex-terminal-proof-84468474abf2449293dcf886cea39f2d\n"
+    },
+    "manual pause": {
+      "url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "version": "0.1.0-preview.13",
+      "terminal_output": "/root/.nix-profile/bin/nix\n/root/.nix-profile/bin/mise\n/root/.nix-profile/bin/op\n/root/.nix-profile/bin/rex\nrex-terminal-proof-f4e79276a8d14571b975d8d2dca2005d\n"
+    },
+    "lifetime expiry": {
+      "url": "https://rex-box-box-rex-smoke-018962fe-56f893ff.tail9441c0.ts.net",
+      "host_id": "c9459df3-cd48-42b0-92d9-3c629bbd08de",
+      "version": "0.1.0-preview.13",
+      "terminal_output": "/root/.nix-profile/bin/nix\n/root/.nix-profile/bin/mise\n/root/.nix-profile/bin/op\n/root/.nix-profile/bin/rex\nrex-terminal-proof-83bfc8ab8749419a852e15727d47b1c5\n"
+    }
+  },
+  "snapshot_id": "im-01M6MB804C7D7W0WB2H8EWG0B4",
+  "expiry_wait_seconds": 116.51,
+  "cleanup": "test box cleanup completed"
+}
