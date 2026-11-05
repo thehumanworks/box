@@ -9,3 +9,6 @@ dist/
 .env.keys.*
 mise.local.toml
 .DS_Store
+/result
+/result-*
+/.direnv/
