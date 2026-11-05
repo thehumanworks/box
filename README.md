@@ -11,6 +11,7 @@ mise, Rex and Tailscale SSH.
 uv tool install .
 uvx modal token new
 box doctor
+uv run --extra remote python scripts/deploy_remote.py  # once per workspace/environment
 box up dev --clone .
 box ssh dev
 box exec dev -- python --version
@@ -69,10 +70,13 @@ box clone dev ../another-project                 # copy later
 box clone dev ./fixtures /workspace/fixtures
 box pull dev /workspace ./work-from-box          # bring changes home
 box ssh dev --print
-box --human exec dev -- npm test                 # stream output
+box --human exec dev -- npm test                 # HTTPS; buffered output
 box --json exec dev -- bash -lc 'git status --short'
 box exec --cwd / dev -- ls -la                   # inspect, even during incomplete setup
 box exec -w /workspace/project dev -- git status # directory for this command only
+box spawn dev -- python long_job.py              # background call, returns call ID
+box poll CALL_ID                                # one check; exit 75 while pending
+box poll --wait CALL_ID                         # wait; preserve the command's exit code
 box up data --volume my-data:/mnt/data
 box rm dev --yes                                # stop and forget; keep volumes
 ```
@@ -86,10 +90,10 @@ Concurrent edits during a copy do not form a consistent point-in-time snapshot.
 
 ## Remote exec over HTTPS
 
-The optional Modal service runs commands server-side in existing boxes, avoiding
-this client's direct sandbox-worker connection. It exposes authenticated
-`POST /exec`, `POST /spawn`, and `GET /poll/{call_id}` endpoints. The local
-`box exec` CLI is unchanged.
+`box exec`, `box spawn` and `box poll` use the authenticated Modal HTTPS service.
+Commands run server-side in existing boxes, avoiding this client's direct
+sandbox-worker connection. Lifecycle, SSH and transfer commands remain unchanged.
+Provision the service and its private proxy credentials once:
 
 ```bash
 uv sync --extra remote
@@ -97,13 +101,31 @@ dotenvx run --quiet --strict -f .env -- \
   uv run --extra remote python scripts/deploy_remote.py
 ```
 
-Use `/exec` for short commands (up to 90 seconds), or spawn/poll for work up to an
-hour. Pass a unique `request_id` and retain it when retrying; an interrupted
-request is not proof the command did not run. Proxy-token holders have shell
-access to managed boxes, so keep those credentials private.
+The CLI auto-detects a single provisioned deployment under
+`~/.config/box/box-exec-api/` (or `$XDG_CONFIG_HOME/box/box-exec-api/`). For multiple
+deployments, select `box --remote-deployment /path/to/deployment.json ...` or set
+`BOX_REMOTE_DEPLOYMENT`. Selection is independent of the active Modal SDK profile.
+The CLI reads the private proxy credential file; no API token or FastAPI extra is
+needed for these three commands. Missing configuration is an error, not a fallback
+to a direct SDK connection.
 
-See [Remote exec on Modal](docs/remote-exec.md) for the API contract, credentials,
-SDK/HTTP examples and the real deployment smoke test.
+`exec --timeout` defaults to 60 seconds, with a 90-second maximum. Use spawn/poll
+for longer work; `spawn --timeout` defaults to one hour. Human output is buffered,
+and each stream is capped at 1 MiB. For interactive streaming, use SSH.
+
+```sh
+call_id=$(box --human spawn dev -- make test)
+box --human poll --wait "$call_id"
+```
+
+The CLI generates a request ID before submission. After an uncertain request,
+retry **identical input** with the `--request-id` printed in the error; do not use a
+new ID. Explicit IDs are also accepted. Nothing is retried or resubmitted
+silently. Proxy-token holders have shell access to managed boxes, so keep those
+credentials private.
+
+See [Remote exec on Modal](docs/remote-exec.md) for exit codes, the API contract,
+credentials and repeatable CLI/HTTP smoke tests.
 
 ## Rex remote access
 
@@ -213,7 +235,11 @@ with this setting; the active Home Manager generation stays unchanged on a faile
 Terminal output is concise. Redirected output defaults to JSON; `--json` and `--human`
 override it and go before the command. `box exec` returns the remote exit code.
 Image builds stream progress to stdout in human mode and stderr in JSON mode.
-JSON execution returns `exit_code`, `stdout` and `stderr`; human mode streams both.
+JSON execution returns `exit_code`, `stdout`, `stderr` and call/request metadata;
+human mode writes buffered stdout/stderr after completion. `poll` wraps the outcome
+under `result`. Pending polls exit 75, execution timeouts exit 124, and other
+service/configuration failures exit 1. `poll --wait --timeout SECONDS` limits only
+the local wait; it does not cancel the job.
 Use `--` before remote commands to preserve their options. Normal lifecycle operations
 never prompt. `box ssh` requires a terminal; agents should use `box exec`.
 `box exec` uses the saved working directory. Override it for one command with
@@ -271,6 +297,11 @@ stop compute. Resume restarts the network daemon using its saved identity.
 
 ## WSL, Zscaler and connection troubleshooting
 
+`exec`, `spawn` and `poll` use normal HTTPS to `*.modal.run` with system CA trust
+and TLS verification enabled. Redirects are disabled. The sandbox DNS policy below does not
+affect those commands; it applies to direct SDK operations such as setup and
+transfer, and to internal service-level tests.
+
 Box uses the host's trusted CAs for Modal gRPC and adds them to Modal's blob HTTP
 client. `SSL_CERT_FILE` and `SSL_CERT_DIR` are respected; certificate and hostname
 verification stay enabled. On managed hosts, use the CA bundle installed by your
@@ -293,7 +324,7 @@ Choose the policy per process with `BOX_DNS_OVER_HTTPS`:
 | `0` | System DNS only; never use DoH or its cached answers. |
 
 ```sh
-BOX_DNS_OVER_HTTPS=force ./result-with-secrets/bin/box exec lf-box -- nix --version
+BOX_DNS_OVER_HTTPS=force ./result-with-secrets/bin/box pull dev /workspace/README.md ./README.from-box.md
 ```
 
 `force` sends public sandbox hostnames to Google even if system DNS would work.
@@ -332,9 +363,9 @@ launcher (or prefix development commands with
 **SSH and Rex still require a working local Tailscale connection.** Modal API access
 does not establish one. If `doctor` reports Tailscale unavailable, sign the host into
 the appropriate tailnet and check its routing/SSH policy. `box exec` works without
-local Tailscale. TLS-inspecting proxies can buffer gRPC stdout until a command exits;
-`--human` cannot force such a proxy to stream. Use Tailscale SSH for interactive
-access, or ask your administrator to allow unbuffered gRPC to Modal's worker hosts.
+local Tailscale or local Modal API authentication; it uses the selected HTTPS
+service's proxy credentials. Its output is deliberately buffered by the API.
+Use Tailscale SSH for interactive access and live output.
 
 A CLI killed during earlier attempts may leave a registry lock. Confirm the reported
 owner process has stopped before running `box unlock NAME --force`. Do not remove a

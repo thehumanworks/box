@@ -1,9 +1,11 @@
 """One interface for people, scripts, and coding agents."""
 
 import json
+import math
 import os
 import subprocess
 import sys
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -13,12 +15,21 @@ import modal
 from box import __version__
 from box.config import Config, load_config, name_value, remote_path
 from box.modal_transport import connect
+from box.remote_client import (
+    CALL_ID,
+    MAX_TIMEOUT,
+    REQUEST_ID,
+    SYNC_TIMEOUT,
+    RemoteClient,
+    RemoteClientError,
+)
 from box.service import Service, ssh_argv
 
 
 class Context:
-    def __init__(self, config_path, as_json):
+    def __init__(self, config_path, as_json, deployment_path=None):
         self.config_path = config_path
+        self.deployment_path = deployment_path
         self.json = as_json if as_json is not None else not sys.stdout.isatty()
 
     def config(self):
@@ -63,9 +74,17 @@ class Context:
     default=None,
     help="Structured results; default for non-terminal stdout. Put before the command.",
 )
+@click.option(
+    "--remote-deployment",
+    "deployment_path",
+    envvar="BOX_REMOTE_DEPLOYMENT",
+    type=click.Path(path_type=Path, dir_okay=False),
+    show_envvar=True,
+    help="HTTPS deployment manifest; auto-detects a single locally provisioned deployment.",
+)
 @click.version_option(__version__)
 @click.pass_context
-def cli(ctx, config_path, as_json):
+def cli(ctx, config_path, as_json, deployment_path):
     """Portable development environments with Tailscale SSH.
 
     Start: box up dev --clone .    Connect: box ssh dev
@@ -74,7 +93,7 @@ def cli(ctx, config_path, as_json):
     Pausing saves files. Processes restart on resume. No prompt is needed for
     normal operations; destructive removal requires --yes in scripts.
     """
-    ctx.obj = Context(config_path, as_json)
+    ctx.obj = Context(config_path, as_json, deployment_path)
 
 
 @cli.command()
@@ -206,6 +225,56 @@ def exec_cwd(ctx, param, value):
         raise click.BadParameter(str(exc)) from exc
 
 
+def request_identity(ctx, param, value):
+    if value is not None and not REQUEST_ID.fullmatch(value):
+        raise click.BadParameter("Use 8–128 ASCII letters, digits, underscores or hyphens")
+    return value
+
+
+def finite_seconds(ctx, param, value):
+    if not math.isfinite(value):
+        raise click.BadParameter("Seconds must be finite")
+    return value
+
+
+def call_identity(ctx, param, value):
+    if not CALL_ID.fullmatch(value):
+        raise click.BadParameter("Expected fc- followed by letters and digits")
+    return value
+
+
+def emit_execution(ctx, value):
+    """HTTP success is not command success; JSON stays one untouched document."""
+    outcome = value.get("result", value)
+    if ctx.json:
+        ctx.emit(value)
+    else:
+        click.echo(outcome.get("stdout", ""), nl=False, color=True)
+        click.echo(outcome.get("stderr", ""), nl=False, err=True, color=True)
+        if outcome.get("stdout_truncated") or outcome.get("stderr_truncated"):
+            click.echo("box: Output truncated at 1 MiB per stream.", err=True)
+        if outcome.get("status") == "pending":
+            click.echo(f"{value['call_id']}: pending")
+        elif outcome.get("status") == "expired":
+            click.echo(f"box: {value['call_id']}: result expired", err=True)
+        elif "error" in outcome:
+            error = outcome["error"]
+            click.echo(
+                f"box: {error.get('message', error.get('code', 'Remote execution failed'))}",
+                err=True,
+            )
+            for key in ("request_id", "call_id"):
+                if outcome.get(key):
+                    click.echo(f"box: {key}={outcome[key]}", err=True)
+    if outcome.get("status") == "completed":
+        return outcome["exit_code"]
+    if outcome.get("status") == "pending":
+        return 75
+    if outcome.get("error", {}).get("code") in {"exec_timeout", "worker_timeout"}:
+        return 124
+    return 1
+
+
 @cli.command("exec", context_settings={"ignore_unknown_options": True})
 @click.option(
     "--cwd",
@@ -214,21 +283,131 @@ def exec_cwd(ctx, param, value):
     metavar="/PATH",
     help="Existing remote directory for this command only; allows inspecting incomplete setup.",
 )
+@click.option(
+    "--timeout",
+    type=click.IntRange(1, SYNC_TIMEOUT),
+    default=60,
+    show_default=True,
+    help="Command timeout in seconds. For longer work use spawn/poll.",
+)
+@click.option(
+    "--request-id",
+    callback=request_identity,
+    help="Reuse with identical input after an uncertain request; generated otherwise.",
+)
 @click.argument("name")
 @click.argument("command", nargs=-1, required=True, type=click.UNPROCESSED)
 @click.pass_obj
-def execute(ctx, name, command, cwd):
-    """Run COMMAND in NAME; preserve its exit code. Use -- before COMMAND.
+def execute(ctx, name, command, cwd, timeout, request_id):
+    """Run COMMAND over HTTPS; preserve its exit code. Use -- before COMMAND.
 
     box exec dev -- python --version
     box exec --cwd / dev -- ls -la
     box --json exec dev -- bash -lc 'printf hello'
-    box --human exec dev -- npm test  (stream stdout/stderr)
+    box --human exec dev -- npm test  (buffered stdout/stderr, not streaming)
     """
-    value = Service().execute(ctx.name(name), command, capture=ctx.json, cwd=cwd)
+    name = ctx.name(name)
+    value = RemoteClient(ctx.deployment_path).execute(
+        name,
+        command,
+        cwd=cwd,
+        timeout=timeout,
+        request_id=request_id,
+    )
+    raise SystemExit(emit_execution(ctx, value))
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.option(
+    "--cwd",
+    "-w",
+    callback=exec_cwd,
+    metavar="/PATH",
+    help="Existing remote directory for this command only.",
+)
+@click.option(
+    "--timeout",
+    type=click.IntRange(1, MAX_TIMEOUT),
+    default=MAX_TIMEOUT,
+    show_default=True,
+    help="Command timeout in seconds.",
+)
+@click.option(
+    "--request-id",
+    callback=request_identity,
+    help="Reuse with identical input after an uncertain submission; generated otherwise.",
+)
+@click.argument("name")
+@click.argument("command", nargs=-1, required=True, type=click.UNPROCESSED)
+@click.pass_obj
+def spawn(ctx, name, command, cwd, timeout, request_id):
+    """Start COMMAND in the background. Use box poll CALL_ID to retrieve its result.
+
+    box spawn dev -- python long_job.py
+    box --human spawn dev -- make test  (prints only the call ID)
+    """
+    name = ctx.name(name)
+    value = RemoteClient(ctx.deployment_path).spawn(
+        name,
+        command,
+        cwd=cwd,
+        timeout=timeout,
+        request_id=request_id,
+    )
+    if value.get("status") != "submitted":
+        raise SystemExit(emit_execution(ctx, value))
     if ctx.json:
         ctx.emit(value)
-    raise SystemExit(value["exit_code"])
+    else:
+        click.echo(value["call_id"])
+
+
+@cli.command()
+@click.argument("call_id", callback=call_identity)
+@click.option("--wait", is_flag=True, help="Keep polling until a terminal result or wait deadline.")
+@click.option(
+    "--timeout",
+    type=click.FloatRange(min=0, min_open=True, max=86400),
+    callback=finite_seconds,
+    default=3600,
+    show_default=True,
+    help="Maximum wait in seconds; does not cancel the job.",
+)
+@click.option(
+    "--interval",
+    type=click.FloatRange(min=0, min_open=True, max=60),
+    callback=finite_seconds,
+    default=1,
+    show_default=True,
+    help="Seconds between pending polls with --wait.",
+)
+@click.pass_obj
+def poll(ctx, call_id, wait, timeout, interval):
+    """Fetch a call result; exit 75 if pending, or preserve the completed command's exit.
+
+    box poll fc-...                  (one check)
+    box poll --wait fc-...           (wait, without submitting another command)
+    """
+    client = RemoteClient(ctx.deployment_path)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            value = client.poll(call_id, timeout=min(30, max(0.001, deadline - time.monotonic())))
+            if not wait or value.get("status") != "pending":
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(interval, remaining))
+            if time.monotonic() >= deadline:
+                break
+    except KeyboardInterrupt:
+        raise RemoteClientError(
+            "Polling interrupted; the job was not cancelled. Run box poll " + call_id,
+            call_id=call_id,
+            exit_code=130,
+        ) from None
+    raise SystemExit(emit_execution(ctx, value))
 
 
 @cli.command("clone")
@@ -368,7 +547,13 @@ def main():
         if key:
             message = message.replace(key, "[redacted]")
         if as_json:
-            click.echo(json.dumps({"error": {"type": type(exc).__name__, "message": message}}))
+            value = (
+                exc.result()
+                if isinstance(exc, RemoteClientError)
+                else {"error": {"type": type(exc).__name__, "message": message}}
+            )
+            value["error"]["message"] = message
+            click.echo(json.dumps(value))
         else:
             with redirect_stdout(sys.stderr):
                 click.echo(f"Error: {message}")

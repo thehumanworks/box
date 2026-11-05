@@ -31,7 +31,13 @@ class CommandService:
         self.calls = []
         self.error = None
         self.registry = self
-        self.execute_result = {"exit_code": 0, "stdout": "", "stderr": ""}
+        self.execute_result = {"status": "completed", "exit_code": 0, "stdout": "", "stderr": ""}
+        self.spawn_result = {
+            "status": "submitted",
+            "request_id": "request-123",
+            "call_id": "fc-test",
+        }
+        self.poll_results = [{"status": "pending", "call_id": "fc-test"}]
 
     def get(self, name):
         return None
@@ -41,11 +47,19 @@ class CommandService:
             raise self.error
         return {"name": name, "status": "running", "host": "100.64.0.2"}
 
-    def execute(self, name, command, *, capture, cwd=None):
-        self.calls.append((name, command, capture, cwd))
+    def execute(self, name, command, *, cwd=None, timeout=60, request_id=None):
+        self.calls.append((name, command, cwd, timeout, request_id))
         if self.error:
             raise self.error
         return self.execute_result
+
+    def spawn(self, name, command, *, cwd=None, timeout=3600, request_id=None):
+        self.calls.append(("spawn", name, command, cwd, timeout, request_id))
+        return self.spawn_result
+
+    def poll(self, call_id, *, timeout):
+        self.calls.append(("poll", call_id, timeout))
+        return self.poll_results.pop(0)
 
     def up(self, config, **kwargs):
         self.calls.append((config, kwargs))
@@ -57,6 +71,7 @@ def commands(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     manager = CommandService()
     monkeypatch.setattr(cli_module, "Service", lambda: manager)
+    monkeypatch.setattr(cli_module, "RemoteClient", lambda path=None: manager)
     return manager
 
 
@@ -130,7 +145,7 @@ def test_remote_arguments_cannot_change_error_output_mode(
         ]
     )
     assert code == 1
-    assert commands.calls == [("dev", ("printf", remote_flag), as_json, None)]
+    assert commands.calls == [("dev", ("printf", remote_flag), None, 60, None)]
     if as_json:
         assert json.loads(stdout)["error"]["message"] == "box is paused"
         assert stderr == ""
@@ -142,20 +157,30 @@ def test_remote_arguments_cannot_change_error_output_mode(
 @pytest.mark.parametrize("exit_code", [0, 7, 127])
 def test_exec_preserves_remote_exit_and_arguments(commands, exit_code):
     args = ("python", "-c", "print('hello')", "--flag", "a b", "", "$(touch /tmp/no)", ";")
-    commands.execute_result = {"exit_code": exit_code, "stdout": "hello\n", "stderr": "warning\n"}
+    commands.execute_result = {
+        "status": "completed",
+        "exit_code": exit_code,
+        "stdout": "hello\n",
+        "stderr": "warning\n",
+    }
     code, stdout, stderr = invoke_main(["--json", "exec", "dev", "--", *args])
     assert code == exit_code
     assert json.loads(stdout) == commands.execute_result
-    assert commands.calls == [("dev", args, True, None)]
+    assert commands.calls == [("dev", args, None, 60, None)]
     assert stderr == ""
 
 
-def test_human_exec_requests_streaming_and_preserves_exit(commands):
-    commands.execute_result = {"exit_code": 9}
+def test_human_exec_emits_buffered_streams_and_preserves_exit(commands):
+    commands.execute_result = {
+        "status": "completed",
+        "exit_code": 9,
+        "stdout": "output",
+        "stderr": "diagnostic",
+    }
     code, stdout, stderr = invoke_main(["--human", "exec", "dev", "--", "false"])
     assert code == 9
-    assert commands.calls == [("dev", ("false",), False, None)]
-    assert stdout == stderr == ""
+    assert commands.calls == [("dev", ("false",), None, 60, None)]
+    assert stdout == "output" and stderr == "diagnostic"
 
 
 @pytest.mark.parametrize("flag", ["--cwd", "-w"])
@@ -164,13 +189,14 @@ def test_exec_cwd_is_a_command_only_override(commands, flag, path, normalized):
     code, stdout, stderr = invoke_main(["exec", flag, path, "dev", "--", "pwd"])
     assert code == 0
     assert json.loads(stdout)["exit_code"] == 0
-    assert commands.calls == [("dev", ("pwd",), True, normalized)]
+    assert commands.calls == [("dev", ("pwd",), normalized, 60, None)]
     assert stderr == ""
 
 
 @pytest.mark.parametrize("path", ["", "relative", "//server/path", "/a/../b", "/a\x00b"])
 def test_invalid_exec_cwd_is_a_usage_error_before_service_initialization(monkeypatch, path):
     monkeypatch.setattr(cli_module, "Service", lambda: pytest.fail("must stay offline"))
+    monkeypatch.setattr(cli_module, "RemoteClient", lambda path: pytest.fail("must stay offline"))
     code, stdout, _ = invoke_main(["exec", "--cwd", path, "dev", "--", "pwd"])
     assert code == 2
     assert "--cwd" in json.loads(stdout)["error"]["message"]
@@ -180,7 +206,7 @@ def test_remote_cwd_flags_after_separator_are_never_consumed(commands):
     args = ("some-command", "--cwd", "/remote-argument", "-w", "literal")
     code, _, _ = invoke_main(["exec", "-w", "/", "dev", "--", *args])
     assert code == 0
-    assert commands.calls == [("dev", args, True, "/")]
+    assert commands.calls == [("dev", args, "/", 60, None)]
 
 
 def test_exec_help_advertises_cwd_without_provider_access(monkeypatch):

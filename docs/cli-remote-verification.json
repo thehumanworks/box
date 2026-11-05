@@ -1,0 +1,110 @@
+{
+  "started_at": "2026-11-05T20:36:48.168165+00:00",
+  "workspace": "imagent",
+  "environment": "main",
+  "url": "https://imagent--box-exec-api-web.us-east.modal.run",
+  "box": "cli-smoke-786257177b1c",
+  "fixture": "temporary real Modal sandbox; no secrets mounted",
+  "cli_api_credentials": "deliberately invalid",
+  "checks": [
+    {
+      "check": "HTTPS exec with invalid SDK credentials",
+      "exit_code": 0,
+      "seconds": 11.111
+    },
+    {
+      "check": "warm HTTPS exec",
+      "exit_code": 0,
+      "seconds": 3.314
+    },
+    {
+      "check": "JSON argv, cwd, stderr and exit",
+      "exit_code": 23,
+      "seconds": 3.555
+    },
+    {
+      "check": "human buffered streams",
+      "exit_code": 23,
+      "seconds": 3.348
+    },
+    {
+      "check": "timeout becomes exit 124",
+      "exit_code": 124,
+      "seconds": 4.351
+    },
+    {
+      "check": "spawn returns call ID",
+      "exit_code": 0,
+      "seconds": 2.586
+    },
+    {
+      "check": "pending poll exits 75",
+      "exit_code": 75,
+      "seconds": 2.269
+    },
+    {
+      "check": "wait deadline does not cancel job",
+      "exit_code": 75,
+      "seconds": 2.871
+    },
+    {
+      "check": "wait reaches completed result",
+      "exit_code": 0,
+      "seconds": 4.405
+    },
+    {
+      "check": "repeat polling is stable",
+      "exit_code": 0,
+      "seconds": 2.204
+    },
+    {
+      "check": "human spawn prints only handle",
+      "exit_code": 0,
+      "seconds": 2.378
+    },
+    {
+      "check": "human poll preserves background exit",
+      "exit_code": 23,
+      "seconds": 2.129
+    },
+    {
+      "check": "unknown call is an error",
+      "exit_code": 1,
+      "seconds": 1.893
+    },
+    {
+      "check": "spawn of unknown box remains observable",
+      "exit_code": 0,
+      "seconds": 2.329
+    },
+    {
+      "check": "poll exposes terminal execution failure",
+      "exit_code": 1,
+      "seconds": 2.454
+    },
+    {
+      "check": "explicit idempotency ID",
+      "exit_code": 0,
+      "seconds": 3.611
+    },
+    {
+      "check": "same ID does not reexecute",
+      "exit_code": 0,
+      "seconds": 2.637
+    },
+    {
+      "check": "verify side effect occurred once",
+      "exit_code": 0,
+      "seconds": 3.377
+    },
+    {
+      "check": "changed input with same ID fails",
+      "exit_code": 1,
+      "seconds": 2.569
+    }
+  ],
+  "passed": true,
+  "sandbox_id": "sb-01M6PPTRZFFFV0EG275RMDDGDH",
+  "fixture_removed": true,
+  "finished_at": "2026-11-05T20:37:53.733831+00:00"
+}

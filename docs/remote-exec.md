@@ -2,7 +2,66 @@
 
 `box-exec-api` deploys one execution worker and an authenticated FastAPI service.
 It runs commands in existing Box sandboxes; it does not create or repair them.
-The local `box exec` CLI still uses its original direct connection.
+The local `box exec`, `box spawn` and `box poll` commands use these endpoints.
+Other commands still use their existing SDK/SSH paths.
+
+## CLI usage
+
+```sh
+box --human exec dev -- python --version
+box exec --timeout 90 --cwd /workspace/project dev -- git status
+box spawn --timeout 1800 dev -- python long_job.py
+box poll CALL_ID
+box poll --wait --timeout 1900 CALL_ID
+```
+
+`exec` posts to `/exec`; `spawn` posts to `/spawn`; `poll` only reads `/poll/{call_id}`.
+Human `spawn` output is just the call ID, so this works without parsing JSON:
+
+```sh
+call_id=$(box --human spawn dev -- make test)
+box --human poll --wait "$call_id"
+```
+
+Deployment selection, in order:
+
+1. Global `--remote-deployment /path/to/deployment.json`.
+2. `BOX_REMOTE_DEPLOYMENT`.
+3. Exactly one manifest under `$XDG_CONFIG_HOME/box/box-exec-api/*/*/deployment.json`
+   (default `~/.config/box/...`). Zero or multiple candidates require explicit setup/selection.
+
+The selected manifest, not the Modal SDK profile, chooses workspace/environment.
+No SDK connection, API token, FastAPI installation or local Tailscale connection
+is needed by these commands. The client accepts this app's HTTPS `*.modal.run`
+URL only, verifies certificates using system trust, rejects redirects, and requires
+an owned, private, non-symlink proxy credential file. It never falls back to the SDK.
+
+| Command/result | CLI exit status |
+| --- | --- |
+| Completed exec or completed poll | The remote command's exit code, including nonzero exits |
+| Successfully submitted spawn | 0 |
+| Poll still pending, including `--wait` deadline | 75 |
+| Execution/worker timeout | 124 |
+| Configuration, authentication, network, expired/unknown call or service error | 1 |
+| Invalid CLI options | 2 |
+| Interrupted HTTP request or wait | 130 |
+
+JSON output remains one document on stdout; polling keeps the API's nested `result`.
+Human exec/poll output preserves the command's stdout and stderr, but is buffered
+until completion and capped at 1 MiB per stream. Truncation is flagged in JSON and
+warned on stderr in human mode. Use SSH for interactive/live output.
+
+`exec --timeout` defaults to 60 seconds (maximum 90). `spawn --timeout` defaults
+to 3600 seconds (maximum 3600). `poll --wait --timeout` defaults to 3600 seconds;
+`--interval` defaults to one second between pending reads. A local wait deadline
+or Ctrl-C does not cancel a background job. Re-run `poll` with the same call ID.
+
+The CLI always generates a request ID **before** dispatch unless you supply
+`--request-id`. An uncertain response/interruption includes the recovery ID in
+JSON and human errors. Retry the same command, cwd and timeout with that ID, not a
+new one. POSTs are never automatically retried. Successful JSON results include
+the ID too. For recovery after killing the client ungracefully, supply and retain
+your own ID before starting.
 
 ## Deploy and verify
 
@@ -42,6 +101,25 @@ working directories, stdout/stderr, nonzero exits, timeouts, background calls,
 repeat polling, duplicate protection and output limits. It creates unique files
 under `/tmp` in the named box and removes those test-owned files afterwards.
 The evidence file contains no credentials or command output.
+
+To verify the actual local CLI without touching an existing box:
+
+```sh
+dotenvx run --quiet --strict -f .env -- \
+  uv run --extra remote python scripts/smoke_cli_remote.py \
+  --box ./result-with-secrets/bin/box --output docs/cli-remote-verification.json
+```
+
+The script provisions a real, temporary Modal sandbox and a unique registry entry,
+then runs subprocesses through all three CLI commands against the deployed API.
+Its CLI subprocesses receive deliberately invalid Modal API credentials, proving
+they use proxy authentication instead. The sandbox and record are removed in
+cleanup. The parent process needs API credentials solely for fixture provisioning.
+Results are recorded in [cli-remote-verification.json](cli-remote-verification.json).
+The packaged `result-with-secrets/bin/box` passed all **19 live CLI checks**, including
+exit 23, timeout 124, pending 75, bounded waiting, repeat polling and retry-ID safety.
+All **358 automated tests** also passed in the development environment and Nix build.
+The temporary sandbox and registry entry were removed; existing boxes were unchanged.
 
 ## HTTP contract
 

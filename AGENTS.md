@@ -6,7 +6,11 @@ the documentation sources, API contract, replay/timeout limits and verified slic
 - Deploy only when authorised: `scripts/deploy_remote.py` configures local TLS,
   deploys the app, and provisions/reuses a private proxy credential file.
 - `scripts/smoke_remote.py` exercises the real deployed endpoints against an
-  existing box. Unit tests alone do not prove Modal deployment or authentication.
+  existing box. `scripts/smoke_cli_remote.py` tests the packaged CLI with an isolated
+  real sandbox and cleans it up. Unit tests alone do not prove deployment/authentication.
+- `exec`, `spawn` and `poll` use `remote_client.py`, not local Service/SDK calls.
+  Select the HTTPS deployment explicitly or auto-discover exactly one local manifest.
+  Never add automatic POST retries or a silent SDK fallback after HTTP failure.
 - Keep the ASGI app proxy-authenticated. Do not upload `.env` or local API/proxy
   credentials into the image. Inject local deployment credentials with dotenvx.
 - `retries=0` does not prevent infrastructure replays. Preserve atomic execution
@@ -17,4 +21,4 @@ the documentation sources, API contract, replay/timeout limits and verified slic
   checks and Modal-native `workdir`; lifecycle operations remain separate.
 
 Local checks: `uv sync --extra remote`, `uv run pytest -q`, and
-`uv run ruff check src tests scripts/deploy_remote.py scripts/smoke_remote.py`.
+`uv run ruff check src tests scripts/deploy_remote.py scripts/smoke_remote.py scripts/smoke_cli_remote.py`.
