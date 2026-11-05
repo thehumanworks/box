@@ -1,5 +1,5 @@
 {
-  "started_at": "2026-11-05T17:40:06.932163+00:00",
+  "started_at": "2026-11-05T18:10:38.031648+00:00",
   "app": "box-exec-api",
   "app_id": "ap-jxTWqQzigEtp9a4Qblw74Z",
   "workspace": "imagent",
@@ -10,133 +10,157 @@
     {
       "check": "unauthenticated /exec",
       "http_status": 401,
-      "seconds": 0.982
+      "seconds": 0.619
     },
     {
       "check": "unauthenticated /spawn",
       "http_status": 401,
-      "seconds": 0.113
+      "seconds": 0.109
     },
     {
       "check": "unauthenticated /poll/fc-unknown",
       "http_status": 401,
-      "seconds": 0.139
+      "seconds": 0.118
     },
     {
       "check": "invalid credentials",
       "http_status": 401,
-      "seconds": 0.136
+      "seconds": 0.107
     },
     {
       "check": "nix version (first)",
       "http_status": 200,
-      "seconds": 8.245
+      "seconds": 8.98
     },
     {
       "check": "nix version (warm)",
       "http_status": 200,
-      "seconds": 1.246
+      "seconds": 1.126
     },
     {
       "check": "cwd, literal argv, streams and exit",
       "http_status": 200,
-      "seconds": 1.263
+      "seconds": 1.169
     },
     {
       "check": "invalid empty argv",
       "http_status": 422,
-      "seconds": 0.593
+      "seconds": 0.504
     },
     {
       "check": "invalid cwd",
       "http_status": 422,
-      "seconds": 0.584
+      "seconds": 0.509
     },
     {
       "check": "sync timeout requires spawn",
       "http_status": 422,
-      "seconds": 0.593
+      "seconds": 0.496
     },
     {
       "check": "unknown box",
       "http_status": 409,
-      "seconds": 1.082
+      "seconds": 0.908
     },
     {
       "check": "missing cwd is not created",
       "http_status": 200,
-      "seconds": 1.202
+      "seconds": 1.178
     },
     {
       "check": "verify missing cwd remains absent",
       "http_status": 200,
-      "seconds": 1.238
+      "seconds": 1.129
     },
     {
       "check": "idempotent original",
       "http_status": 200,
-      "seconds": 1.263
+      "seconds": 1.078
     },
     {
       "check": "idempotent repeat",
       "http_status": 200,
-      "seconds": 1.082
+      "seconds": 0.866
     },
     {
       "check": "side effect happened once",
       "http_status": 200,
-      "seconds": 1.27
+      "seconds": 1.057
     },
     {
       "check": "idempotency conflict",
       "http_status": 409,
-      "seconds": 1.081
+      "seconds": 0.905
+    },
+    {
+      "check": "sandbox execution timeout",
+      "http_status": 504,
+      "seconds": 3.03
     },
     {
       "check": "spawn returns handle",
       "http_status": 202,
-      "seconds": 1.466
+      "seconds": 1.14
     },
     {
       "check": "background completion",
       "http_status": 200,
-      "pending_polls": 4,
-      "call_id": "fc-01M6PCQY2Z2PHZ177JW0J96HYW",
+      "pending_polls": 5,
+      "call_id": "fc-01M6PEFVPPV7C12HCT9GF3V9T7",
       "status": "completed"
     },
     {
       "check": "repeat polling",
       "http_status": 200,
-      "seconds": 0.873
+      "seconds": 0.725
     },
     {
       "check": "spawn invalid box",
       "http_status": 202,
-      "seconds": 1.23
+      "seconds": 0.952
     },
     {
       "check": "background failure",
       "http_status": 200,
       "pending_polls": 0,
-      "call_id": "fc-01M6PCR6A2EBW6KH9HA3WTK6EV",
+      "call_id": "fc-01M6PEG3SNVV0Y7F1ZKZD79W6D",
       "status": "failed"
     },
     {
       "check": "unknown call cannot read other results",
       "http_status": 404,
-      "seconds": 0.612
+      "seconds": 0.523
+    },
+    {
+      "check": "concurrent implicit request ID",
+      "http_status": 200,
+      "pending_polls": 0,
+      "call_id": "fc-01M6PEG5Z76RRJ7463MJ657SZ3",
+      "status": "completed"
+    },
+    {
+      "check": "concurrent implicit request ID",
+      "http_status": 200,
+      "pending_polls": 0,
+      "call_id": "fc-01M6PEG6EPGCDER8YYMZHFMK4W",
+      "status": "completed"
+    },
+    {
+      "check": "concurrent requests both executed",
+      "http_status": 200,
+      "seconds": 1.086
     },
     {
       "check": "bounded output on both streams",
       "http_status": 200,
-      "seconds": 7.215
+      "seconds": 6.747
     },
     {
-      "check": "cleanup test-owned file",
+      "check": "cleanup test-owned files",
       "http_status": 200,
-      "seconds": 1.196
+      "seconds": 1.136
     }
   ],
   "passed": true,
-  "finished_at": "2026-11-05T17:40:48.757876+00:00"
+  "finished_at": "2026-11-05T18:11:24.364997+00:00"
 }

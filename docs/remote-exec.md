@@ -136,7 +136,7 @@ of the HTTP connection; FastAPI in-process background tasks are not used.
 | 504 | Worker execution timeout: terminal failure, not pending. |
 | 503 | Ownership/result lookup failed; retry polling rather than submitting another command. |
 
-Completed polling does not consume the result or rerun the command. Service-owned
+Completed polling does not consume the result or rerun the command. Valid service-owned
 SDK and synchronous calls are indexed too, so their returned call IDs can be polled.
 A terminal Modal worker failure returns a failed result, rather than suggesting
 endless polling of a dead call.
@@ -162,8 +162,8 @@ but only the winning claim may launch the sandbox command.
 
 If you omit `request_id`, the HTTP handler uses its Modal input call ID; direct SDK
 calls use their worker input call ID. A random UUID generated **inside** a handler
-would change on a replay and defeat protection. Concurrent HTTP inputs have been
-verified to receive distinct IDs. Stability across infrastructure retries relies
+would change on a replay and defeat protection. The live smoke suite checks that
+concurrent HTTP inputs receive distinct IDs. Stability across infrastructure retries relies
 on Modal's input identity; forced preemption has not been tested. A fresh client
 request is a new input: **always supply the same explicit ID when retrying it**.
 
@@ -241,8 +241,24 @@ redeploy. Stopping the app in Modal leaves existing boxes and the local CLI inta
   and real execution. No public unauthenticated deployment was used.
 - [x] **Background calls:** deployed spawn/poll, observed pending → completed,
   background failure and repeat polling without another execution.
-- [ ] **Operational proof:** final concurrency, timeout, duplicate, output-limit,
-  packaging and regression checks; evidence in `remote-exec-verification.json`.
+- [x] **Operational proof:** concurrent implicit IDs remained distinct; the timed-out
+  process did not produce its delayed output file; duplicate side effects ran once;
+  both output streams stayed within their limits. Nix packaging and regressions passed.
+
+### Deployment verified on 5 November 2026
+
+- Workspace/environment: `imagent/main`; app: `box-exec-api`.
+- URL: <https://imagent--box-exec-api-web.us-east.modal.run>.
+- **29 real HTTP checks passed** against `lf-box`. The first `nix --version` call
+  after redeployment took **8.98 s**; the next took **1.126 s**. These are observed
+  client timings, not latency guarantees. The earlier direct CLI path took about 15 s.
+- **289 offline tests passed**, including the original CLI/lifecycle tests.
+  The Nix package build also passed all 289 tests; its offline lock check passed.
+- Lint passed. No local API/proxy credentials were uploaded, and test-owned remote
+  files were removed. The deployment was left running, with scale-to-zero defaults.
+
+Per-check HTTP statuses, timings and call IDs are recorded in
+[remote-exec-verification.json](remote-exec-verification.json).
 
 ## Documentation sources
 
@@ -256,7 +272,7 @@ Consulted 5 November 2026, starting from [Modal's documentation index](https://m
 - [Proxy authentication](https://modal.com/docs/guide/webhook-proxy-auth.md) and [proxy-token CLI](https://modal.com/docs/cli/latest/workspace.md)
 - [HTTP timeouts](https://modal.com/docs/guide/webhook-timeouts.md)
 - [Failures and infrastructure retries](https://modal.com/docs/guide/retries.md)
-- [Dict limits, retention and atomic insertion](https://modal.com/docs/guide/dicts.md): current limit 100 MiB/object, under 5 MiB recommended; not 100 KiB.
+- [Dict limits, retention and atomic insertion](https://modal.com/docs/guide/dicts.md): current limit 100 MiB/object, under 5 MiB recommended.
 - [FunctionCall](https://modal.com/docs/sdk/py/latest/FunctionCall.md) and [current call ID](https://modal.com/docs/sdk/py/latest/current_function_call_id.md)
 - [Locked images with uv](https://modal.com/docs/guide/images.md)
 - [FastAPI bodies](https://fastapi.tiangolo.com/tutorial/body/), [async handlers](https://fastapi.tiangolo.com/async/) and [errors](https://fastapi.tiangolo.com/tutorial/handling-errors/)

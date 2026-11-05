@@ -84,6 +84,27 @@ credentials. Copies are one-time transfers, not live synchronization. Existing
 nonempty destinations require `--overwrite`, which merges and replaces matching files.
 Concurrent edits during a copy do not form a consistent point-in-time snapshot.
 
+## Remote exec over HTTPS
+
+The optional Modal service runs commands server-side in existing boxes, avoiding
+this client's direct sandbox-worker connection. It exposes authenticated
+`POST /exec`, `POST /spawn`, and `GET /poll/{call_id}` endpoints. The local
+`box exec` CLI is unchanged.
+
+```bash
+uv sync --extra remote
+dotenvx run --quiet --strict -f .env -- \
+  uv run --extra remote python scripts/deploy_remote.py
+```
+
+Use `/exec` for short commands (up to 90 seconds), or spawn/poll for work up to an
+hour. Pass a unique `request_id` and retain it when retrying; an interrupted
+request is not proof the command did not run. Proxy-token holders have shell
+access to managed boxes, so keep those credentials private.
+
+See [Remote exec on Modal](docs/remote-exec.md) for the API contract, credentials,
+SDK/HTTP examples and the real deployment smoke test.
+
 ## Rex remote access
 
 New boxes start Rex automatically. `box up`, `box resume` and `box status` show its
