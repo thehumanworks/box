@@ -68,10 +68,13 @@ your own ID before starting.
 Run from the repository with an existing ready box and the encrypted `.env`:
 
 ```sh
-uv sync --extra remote
 dotenvx run --quiet --strict -f .env -- \
-  uv run --extra remote python scripts/deploy_remote.py
+  uv run python scripts/deploy_remote.py
 ```
+
+Deployment needs only the base dependencies locally. The `remote` extra (pydantic,
+FastAPI) is installed in the Modal image from `uv.lock`, so `box.remote_app` defers
+those imports with `image.imports()`. Local tests still need `uv sync --extra remote`.
 
 The helper uses the active Modal workspace/environment; `--environment NAME`
 selects another environment. The named box must exist in that environment's

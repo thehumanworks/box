@@ -95,8 +95,15 @@ class Config:
             raise ValueError("clones must be an array of source/destination tables")
         destinations = []
         for clone in self.clones:
-            if not isinstance(clone, dict) or set(clone) - {"source", "destination", "exclude"}:
-                raise ValueError("Each clone accepts source, destination and optional exclude")
+            if not isinstance(clone, dict) or set(clone) - {
+                "source",
+                "destination",
+                "exclude",
+                "respect_ignores",
+            }:
+                raise ValueError(
+                    "Each clone accepts source, destination, exclude and respect_ignores"
+                )
             if not isinstance(clone.get("source"), str) or not clone["source"]:
                 raise ValueError("Each clone needs a local source directory")
             dest = remote_path(clone.get("destination", self.workdir))
@@ -107,6 +114,8 @@ class Config:
                 raise ValueError("Clone destinations must not overlap")
             destinations.append(dest)
             clone["destination"] = dest
+            if type(clone.get("respect_ignores", True)) is not bool:
+                raise ValueError("clone.respect_ignores must be a boolean")
             patterns = clone.get("exclude", [])
             if not isinstance(patterns, list) or any(not isinstance(x, str) for x in patterns):
                 raise ValueError("clone.exclude must be an array of patterns")

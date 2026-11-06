@@ -99,6 +99,121 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(len(self.sb.filesystem.removed), 2)
         self.assertTrue(all(not Path(p).exists() for p in self.sb.filesystem.removed))
 
+    def test_direnv_nix_cache_is_excluded_in_both_directions(self):
+        for parent in (self.source, self.source / "nested"):
+            parent.mkdir(exist_ok=True)
+            inputs = parent / ".direnv" / "flake-inputs"
+            inputs.mkdir(parents=True)
+            (inputs / "local-source").symlink_to("/nix/store/local-source")
+        (self.source / ".envrc").write_text("use flake\n")
+        (self.source / "flake.nix").write_text("{}\n")
+
+        transfer.copy_to(self.sb, self.source, str(self.destination))
+        returned = self.root / "returned"
+        # Download the original source so the remote packer also encounters the cache.
+        transfer.copy_from(self.sb, str(self.source), returned)
+
+        for destination in (self.destination, returned):
+            self.assertFalse((destination / ".direnv").exists())
+            self.assertFalse((destination / "nested" / ".direnv").exists())
+            self.assertEqual((destination / ".envrc").read_text(), "use flake\n")
+            self.assertEqual((destination / "flake.nix").read_text(), "{}\n")
+        self.assertTrue((self.source / ".direnv" / "flake-inputs" / "local-source").is_symlink())
+
+    def test_nix_build_output_links_are_excluded_in_both_directions(self):
+        for name in ("result", "result-dev"):
+            (self.source / name).symlink_to("/nix/store/local-build-output")
+        (self.source / "result.txt").write_text("keep")
+        nested = self.source / "nested"
+        nested.mkdir()
+        (nested / "result").mkdir()
+        (nested / "result" / "file").write_text("keep")
+        (nested / "result-dev").write_text("keep")
+        (nested / "result-link").symlink_to("result-dev")
+
+        transfer.copy_to(self.sb, self.source, str(self.destination))
+        returned = self.root / "returned"
+        transfer.copy_from(self.sb, str(self.source), returned)
+        for destination in (self.destination, returned):
+            for name in ("result", "result-dev"):
+                self.assertFalse(os.path.lexists(destination / name))
+            self.assertEqual((destination / "result.txt").read_text(), "keep")
+            self.assertEqual((destination / "nested" / "result" / "file").read_text(), "keep")
+            self.assertEqual((destination / "nested" / "result-dev").read_text(), "keep")
+            self.assertEqual(os.readlink(destination / "nested" / "result-link"), "result-dev")
+        self.assertTrue((self.source / "result").is_symlink())
+
+    def test_other_external_result_links_are_rejected(self):
+        (self.source / "result").symlink_to("/tmp/other-output")
+        with self.assertRaises(tarfile.FilterError):
+            transfer.copy_to(self.sb, self.source, str(self.destination))
+        self.assertFalse(self.destination.exists())
+
+    def test_git_ignores_keep_tracked_files_and_apply_nested_rules(self):
+        def git(*args):
+            subprocess.run(["git", "-C", str(self.source), *args], check=True, capture_output=True)
+
+        git("init")
+        (self.source / ".gitignore").write_text("*.log\ncache/\n!keep.log\nignored-link\n")
+        (self.source / "tracked.log").write_text("tracked")
+        git("add", "-f", "tracked.log")
+        (self.source / "drop.log").write_text("ignored")
+        (self.source / "keep.log").write_text("keep")
+        (self.source / "cache").mkdir()
+        (self.source / "cache" / "tracked").write_text("tracked in ignored directory")
+        git("add", "-f", "cache/tracked")
+        (self.source / "cache" / "drop").write_text("ignored")
+        (self.source / "ignored-link").symlink_to("/outside/ignored")
+        nested = self.source / "nested"
+        nested.mkdir()
+        (nested / ".gitignore").write_text("*.tmp\n!keep.tmp\n")
+        (nested / "drop.tmp").write_text("ignored")
+        (nested / "keep.tmp").write_text("keep")
+        (nested / "line\nbreak.log").write_text("ignored")
+        (nested / ".dockerignore").write_text("keep.tmp\n")
+        transfer.copy_to(self.sb, self.source, str(self.destination))
+        for name in ("tracked.log", "keep.log", "cache/tracked", "nested/keep.tmp"):
+            self.assertTrue((self.destination / name).is_file(), name)
+        for name in (
+            "drop.log",
+            "cache/drop",
+            "ignored-link",
+            "nested/drop.tmp",
+            "nested/line\nbreak.log",
+        ):
+            self.assertFalse(os.path.lexists(self.destination / name), name)
+
+        # A subtree still uses ignore rules from its repository ancestors.
+        subtree = self.root / "subtree"
+        transfer.copy_to(self.sb, nested, str(subtree))
+        self.assertTrue((subtree / "keep.tmp").exists())
+        self.assertFalse((subtree / "drop.tmp").exists())
+        self.assertFalse((subtree / "line\nbreak.log").exists())
+
+    def test_git_ignore_opt_out_and_download_behavior(self):
+        subprocess.run(["git", "init", str(self.source)], check=True, capture_output=True)
+        (self.source / ".gitignore").write_text("ignored\nexplicit\n")
+        (self.source / "ignored").write_text("contents")
+        (self.source / "explicit").write_text("contents")
+        transfer.copy_to(
+            self.sb,
+            self.source,
+            str(self.destination),
+            respect_ignores=False,
+            exclude=("explicit",),
+        )
+        self.assertTrue((self.destination / "ignored").exists())
+        self.assertFalse((self.destination / "explicit").exists())
+        returned = self.root / "returned"
+        transfer.copy_from(self.sb, str(self.source), returned)
+        self.assertTrue((returned / "ignored").exists())
+
+    def test_missing_git_requires_explicit_opt_out(self):
+        with patch("box.transfer.subprocess.run", side_effect=FileNotFoundError):
+            with self.assertRaisesRegex(ValueError, "--not-respect-ignores"):
+                transfer.copy_to(self.sb, self.source, str(self.destination))
+            self.assertEqual(self.sb.filesystem.removed, [])
+
     def test_empty_destination_is_allowed(self):
         self.destination.mkdir()
         (self.source / "hello").write_text("hello")

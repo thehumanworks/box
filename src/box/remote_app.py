@@ -5,15 +5,23 @@ Only Python source and the locked dependency files enter the image, never .env.
 """
 
 import modal
-from pydantic import ValidationError
 
-from box.remote_exec import APP_NAME, MAX_TIMEOUT, RUNS_NAME, ExecRequest, execute_claimed, failure
+from box.remote_constants import APP_NAME, MAX_TIMEOUT, RUNS_NAME
 
 image = (
     modal.Image.debian_slim(python_version="3.14")
     .uv_sync(extras=["remote"], extra_options="--no-dev", uv_version="0.13.5")
     .add_local_python_source("box")
 )
+
+# pydantic and FastAPI (the "remote" extra) are installed in the image from uv.lock,
+# not necessarily in the local deploy environment. Modal records local import errors
+# here and re-raises them inside a container running this image.
+with image.imports():
+    from pydantic import ValidationError
+
+    from box.remote_exec import ExecRequest, execute_claimed, failure
+
 app = modal.App(APP_NAME)
 runs = modal.Dict.from_name(RUNS_NAME, create_if_missing=True)
 

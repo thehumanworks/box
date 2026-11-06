@@ -10,6 +10,7 @@ secrets = ["1password"]
 source = "."
 destination = "/workspace"
 exclude = ["dist", ".env"]
+respect_ignores = true # Git ignore rules; false includes Git-ignored files
 
 # Optional durable storage, separate from exit snapshots.
 # [volumes]

@@ -3,6 +3,7 @@
 import importlib
 import json
 import sys
+from contextlib import nullcontext
 from unittest.mock import patch
 
 import pytest
@@ -265,6 +266,48 @@ def test_cli_clone_and_volume_options_build_portable_config(commands, tmp_path):
     assert config.timeout == 600
 
 
+@pytest.mark.parametrize(
+    "flag,expected",
+    [
+        ("--respect-ignores", True),
+        ("--not-respect-ignores", False),
+    ],
+)
+def test_up_saves_ignore_flag_for_config_and_cli_clones(commands, tmp_path, flag, expected):
+    source = tmp_path / "source"
+    source.mkdir()
+    (tmp_path / "box.toml").write_text(
+        '[[clones]]\nsource = "."\ndestination = "/workspace/configured"\nrespect_ignores = false\n'
+    )
+    code, _, _ = invoke_main(["up", "dev", "--clone", str(source), flag])
+    assert code == 0
+    config, _ = commands.calls[0]
+    assert len(config.clones) == 2
+    assert all(clone["respect_ignores"] is expected for clone in config.clones)
+
+
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        ([], True),
+        (["--respect-ignores"], True),
+        (["--not-respect-ignores"], False),
+    ],
+)
+def test_clone_passes_ignore_flag(commands, tmp_path, monkeypatch, flags, expected):
+    monkeypatch.setattr(commands, "lock", lambda name: nullcontext(), raising=False)
+    monkeypatch.setattr(
+        commands,
+        "running",
+        lambda name: ({"config": {"workdir": "/workspace", "volumes": {}}}, object()),
+        raising=False,
+    )
+    with patch("box.transfer.copy_to", return_value={}) as copy:
+        code, _, _ = invoke_main(["clone", "dev", str(tmp_path), *flags])
+    assert code == 0
+    assert copy.call_args.kwargs["respect_ignores"] is expected
+
+
 def test_noninteractive_remove_requires_explicit_yes(commands):
     code, stdout, _ = invoke_main(["rm", "dev"])
     assert code == 1
@@ -301,6 +344,8 @@ def test_noninteractive_remove_requires_explicit_yes(commands):
         {"volumes": {"/workspace/": "x", "/workspace": "y"}},
         {"clones": [{"source": "/tmp/a", "destination": "/workspace", "unknown": True}]},
         {"clones": [{"source": "/tmp/a", "exclude": "*.env"}]},
+        {"clones": [{"source": "/tmp/a", "respect_ignores": "false"}]},
+        {"clones": [{"source": "/tmp/a", "respect_ignores": 0}]},
         {
             "clones": [
                 {"source": "/tmp/a", "destination": "/workspace/a"},
@@ -320,7 +365,7 @@ def test_configuration_resolves_sources_relative_to_file_and_defaults_destinatio
     cfg = project / "box.toml"
     cfg.write_text(
         'name = "custom"\nworkdir = "/workspace/project"\n'
-        '[[clones]]\nsource = "../source"\nexclude = ["*.tmp"]\n'
+        '[[clones]]\nsource = "../source"\nexclude = ["*.tmp"]\nrespect_ignores = false\n'
     )
     value = load_config(cfg)
     assert value.name == "custom"
@@ -329,6 +374,7 @@ def test_configuration_resolves_sources_relative_to_file_and_defaults_destinatio
             "source": str(tmp_path / "source"),
             "destination": "/workspace/project",
             "exclude": ["*.tmp"],
+            "respect_ignores": False,
         }
     ]
     assert Config(**value.to_dict()).validate() == value

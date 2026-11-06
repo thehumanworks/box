@@ -257,6 +257,7 @@ class Service:
                         source,
                         destination,
                         exclude=tuple(clone.get("exclude", [])),
+                        respect_ignores=clone.get("respect_ignores", True),
                         mounts=tuple(config.volumes),
                     )
                 except Exception as exc:

@@ -7,11 +7,9 @@ import modal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from box.config import name_value, remote_path
+from box.remote_constants import MAX_TIMEOUT
 
-APP_NAME = "box-exec-api"
-RUNS_NAME = "box-exec-runs-v1"
 MAX_OUTPUT_BYTES = 1024 * 1024  # Per stream; keep cached results under 5 MiB.
-MAX_TIMEOUT = 3600
 SYNC_TIMEOUT = 90
 
 

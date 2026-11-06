@@ -2,6 +2,8 @@
 
 import copy
 import io
+import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -163,6 +165,24 @@ def test_modal_declaration_constructs_without_deploying():
 
     assert app.name == "box-exec-api"
     assert callable(exec_command.remote) and callable(web.get_web_url)
+
+
+def test_deploy_imports_the_app_without_the_remote_extra_installed_locally():
+    # scripts/deploy_remote.py imports remote_app locally; pydantic and FastAPI are
+    # installed only in the Modal image. A subprocess keeps this test's modules intact.
+    code = (
+        "import sys\n"
+        "sys.modules['pydantic'] = sys.modules['fastapi'] = None\n"
+        "from box.remote_app import app, exec_command, web\n"
+        "assert app.name == 'box-exec-api'\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-W", "error::UserWarning", "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_claim_store_failure_is_a_terminal_worker_outcome(monkeypatch):

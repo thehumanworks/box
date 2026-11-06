@@ -123,8 +123,24 @@ def cli(ctx, config_path, as_json, deployment_path):
     help="Optional idle expiry. Tailscale SSH traffic may not reset Modal's idle timer.",
 )
 @click.option("--tailscale-secret", help="Modal secret containing TAILSCALE_AUTHKEY.")
+@click.option(
+    "--respect-ignores/--not-respect-ignores",
+    default=None,
+    help="Respect Git ignore rules for initial clones (default: config or enabled).",
+)
 @click.pass_obj
-def up(ctx, name, sources, mounts, cpu, memory, timeout, idle_timeout, tailscale_secret):
+def up(
+    ctx,
+    name,
+    sources,
+    mounts,
+    cpu,
+    memory,
+    timeout,
+    idle_timeout,
+    tailscale_secret,
+    respect_ignores,
+):
     """Create, reconnect, or resume NAME. Existing boxes retain their saved configuration."""
     config = ctx.config()
     if name:
@@ -140,6 +156,9 @@ def up(ctx, name, sources, mounts, cpu, memory, timeout, idle_timeout, tailscale
         config.clones.append(
             {"source": str(source), "destination": f"{config.workdir}/{source.name}"}
         )
+    if respect_ignores is not None:
+        for clone in config.clones:
+            clone["respect_ignores"] = respect_ignores
     for spec in mounts:
         volume, separator, mount = spec.partition(":")
         if not separator or not volume:
@@ -149,6 +168,7 @@ def up(ctx, name, sources, mounts, cpu, memory, timeout, idle_timeout, tailscale
     if service.registry.get(config.name) and (
         sources
         or mounts
+        or respect_ignores is not None
         or any(x is not None for x in (cpu, memory, timeout, idle_timeout, tailscale_secret))
     ):
         raise ValueError(
@@ -416,10 +436,16 @@ def poll(ctx, call_id, wait, timeout, interval):
 @click.argument("destination", required=False)
 @click.option("--exclude", multiple=True, help="Additional exclusion pattern.")
 @click.option(
+    "--respect-ignores/--not-respect-ignores",
+    default=True,
+    show_default=True,
+    help="Respect Git ignore rules, keeping tracked files.",
+)
+@click.option(
     "--overwrite", is_flag=True, help="Merge into existing directory, replacing matching files."
 )
 @click.pass_obj
-def clone(ctx, name, source, destination, exclude, overwrite):
+def clone(ctx, name, source, destination, exclude, overwrite, respect_ignores):
     """Copy a local directory now. Defaults to /workspace/<source-name>."""
     from box.transfer import copy_to
 
@@ -435,6 +461,7 @@ def clone(ctx, name, source, destination, exclude, overwrite):
                 source.resolve(),
                 destination,
                 exclude=exclude,
+                respect_ignores=respect_ignores,
                 overwrite=overwrite,
                 mounts=tuple(record["config"]["volumes"]),
             )

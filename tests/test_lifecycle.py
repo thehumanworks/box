@@ -465,7 +465,11 @@ def test_recovery_completes_pending_clones_without_requiring_completed_sources(
     config = Config(
         clones=[
             {"source": str(tmp_path / "deleted-source"), "destination": "/workspace/done"},
-            {"source": str(pending), "destination": "/workspace/pending"},
+            {
+                "source": str(pending),
+                "destination": "/workspace/pending",
+                "respect_ignores": False,
+            },
         ]
     )
     old = interrupted_box(lifecycle, config)
@@ -479,6 +483,7 @@ def test_recovery_completes_pending_clones_without_requiring_completed_sources(
 
     def copy(sb, source, destination, **kwargs):
         copies.append(destination)
+        assert kwargs["respect_ignores"] is False
         assert not kwargs.get("overwrite", False)
         sb.files[destination + "/copied"] = "copied"
 

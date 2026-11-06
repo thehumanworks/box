@@ -1,7 +1,9 @@
 """Deploy the exec service using credentials injected into this process only.
 
 Run from the repository: dotenvx run --quiet --strict -f .env -- \
-    uv run --extra remote python scripts/deploy_remote.py
+    uv run python scripts/deploy_remote.py
+
+The "remote" extra (pydantic, FastAPI) is installed in the Modal image, not locally.
 """
 
 import argparse

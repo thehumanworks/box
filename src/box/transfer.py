@@ -12,11 +12,12 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
 
-DEFAULT_EXCLUDES = (".venv", "node_modules", "__pycache__")
+DEFAULT_EXCLUDES = (".venv", ".direnv", "node_modules", "__pycache__")
 
 
 def _remote_path(value):
@@ -63,7 +64,47 @@ def _safe_member(member, root):
     return tarfile.data_filter(member, str(root))
 
 
-def _pack(source, archive, exclude):
+def _git_ignored(source):
+    """Ask Git for ignored, untracked entries, relative to the copied directory."""
+    env = {**os.environ, "LC_ALL": "C"}
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            env=env,
+        )
+        if probe.returncode:
+            if b"not a git repository" in probe.stderr:
+                return set()
+            raise ValueError(f"Cannot inspect Git repository: {os.fsdecode(probe.stderr).strip()}")
+        if probe.stdout.strip() != b"true":
+            return set()
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(source),
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+                "-z",
+            ],
+            capture_output=True,
+            env=env,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Git is required; install git or use --not-respect-ignores") from exc
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            f"Cannot read Git ignore rules: {os.fsdecode(exc.stderr).strip()}"
+        ) from exc
+    return {os.fsdecode(name).rstrip("/") for name in result.stdout.split(b"\0") if name}
+
+
+def _pack(source, archive, exclude, ignored=()):
     source = Path(source)
     if not source.is_dir() or source.is_symlink():
         raise ValueError(f"Source must be a real directory: {source}")
@@ -72,6 +113,8 @@ def _pack(source, archive, exclude):
 
         def add(path, relative):
             nonlocal count
+            if relative in ignored:
+                return
             if relative != "." and any(
                 fnmatch.fnmatchcase(relative, pattern) or fnmatch.fnmatchcase(path.name, pattern)
                 for pattern in exclude
@@ -80,6 +123,16 @@ def _pack(source, archive, exclude):
             # Copy hard-linked files as independent regular files.
             output.inodes.clear()
             member = output.gettarinfo(str(path), arcname=relative)
+            # Conventional Nix build outputs refer to this machine's store,
+            # not portable project content. Keep real files/directories and
+            # internal links with these names.
+            if (
+                member.issym()
+                and (path.name == "result" or path.name.startswith("result-"))
+                and PurePosixPath(member.linkname).is_relative_to("/nix/store")
+                and ".." not in PurePosixPath(member.linkname).parts
+            ):
+                return
             _safe_member(member, source)
             if member.isfile():
                 # O_NOFOLLOW also catches a source replaced by a symlink while packing.
@@ -245,6 +298,7 @@ def copy_to(
     destination: str,
     *,
     exclude: tuple[str, ...] = (),
+    respect_ignores: bool = True,
     overwrite: bool = False,
     mounts: tuple[str, ...] = (),
 ) -> dict:
@@ -253,7 +307,8 @@ def copy_to(
     source = Path(source).expanduser().absolute()
     with tempfile.TemporaryDirectory(prefix="box-transfer-") as local:
         archive = Path(local) / "archive.tar"
-        _pack(source, archive, DEFAULT_EXCLUDES + tuple(exclude))
+        ignored = _git_ignored(source) if respect_ignores else set()
+        _pack(source, archive, DEFAULT_EXCLUDES + tuple(exclude), ignored)
         temporary = _remote(sb, "temporary")
         failure = None
         try:

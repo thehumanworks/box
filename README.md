@@ -51,6 +51,7 @@ secrets = ["1password"]         # default; add other Modal secret names here
 source = "."
 destination = "/workspace"
 exclude = ["dist", ".env"]
+respect_ignores = true         # default; applies to this initial clone
 
 [volumes]
 "/mnt/data" = "my-project-data"
@@ -81,9 +82,26 @@ box up data --volume my-data:/mnt/data
 box rm dev --yes                                # stop and forget; keep volumes
 ```
 
+Uploads (`box up --clone` and `box clone`) respect Git ignore rules by default
+when the source is inside a Git working tree. Git handles nested `.gitignore`
+files, negation, repository-local excludes and global excludes; tracked files are
+not excluded by ignore rules. Docker and npm ignore files are not used.
+Outside a Git working tree, no Git ignore filtering is applied.
+
+Use `--not-respect-ignores` to disable Git filtering or `--respect-ignores` to
+enable it explicitly. On `box up`, an explicit flag overrides all initial clones
+from the config and command line; otherwise each clone's `respect_ignores`
+setting applies (default `true`). Existing boxes retain their saved settings.
+Git must be installed on the client unless filtering is disabled.
+Downloads (`box pull`) do not apply Git ignore rules.
+
 Copies include dotfiles, Git history, executable permissions, safe relative symlinks
-and empty directories. `.venv`, `node_modules` and `__pycache__` are excluded by default.
-External symlinks are rejected. Choose directories deliberately: dotfiles may contain
+and empty directories. `.venv`, `.direnv`, `node_modules` and `__pycache__` are excluded
+regardless of Git filtering, as are explicit `exclude` patterns. The `.direnv` cache contains machine-local state and Nix-store links;
+`.envrc` and flake files are still copied. Conventional Nix build-output symlinks
+named `result` or `result-*` pointing into `/nix/store` are also omitted; real files,
+directories and safe relative links with those names are preserved.
+Other external symlinks are rejected. Choose directories deliberately: dotfiles may contain
 credentials. Copies are one-time transfers, not live synchronization. Existing
 nonempty destinations require `--overwrite`, which merges and replaces matching files.
 Concurrent edits during a copy do not form a consistent point-in-time snapshot.
