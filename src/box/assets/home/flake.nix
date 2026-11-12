@@ -2,7 +2,7 @@
   description = "Box user environment, managed by Home Manager and Determinate Nix";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/0bb2eedc20e4739f29e8045034f2828ad7054f8f";
+    nixpkgs.url = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
     home-manager = {
       url = "github:nix-community/home-manager/b787c48e2ec57a9d098f5c2721882a3bc1e16f97";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -19,7 +19,7 @@
         # Modal's development image runs on x86_64 Linux, including for Mac clients.
         system = "x86_64-linux";
         config.allowUnfreePredicate = pkg:
-          nixpkgs.lib.getName pkg == "1password-cli";
+          builtins.elem (nixpkgs.lib.getName pkg) [ "1password-cli" "claude-code" ];
       };
       modules = [ rex.homeManagerModules.default ./home.nix ];
     };

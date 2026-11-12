@@ -13,12 +13,10 @@ from pathlib import Path
 def write_environment(directory: Path = Path("/run/box")) -> None:
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     directory.chmod(0o700)
-    token = os.environ.get("OP_SERVICE_ACCOUNT_TOKEN")
-    content = (
-        f"export OP_SERVICE_ACCOUNT_TOKEN={shlex.quote(token)}\n"
-        if token
-        else "unset OP_SERVICE_ACCOUNT_TOKEN\n"
-    )
+    content = ""
+    for name in ("OP_SERVICE_ACCOUNT_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+        token = os.environ.get(name)
+        content += f"export {name}={shlex.quote(token)}\n" if token else f"unset {name}\n"
     fd, temporary = tempfile.mkstemp(prefix=".ssh-env-", dir=directory)
     try:
         with os.fdopen(fd, "w") as output:

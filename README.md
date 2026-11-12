@@ -44,7 +44,7 @@ cpu = 2
 memory = 4096
 timeout = 86400
 tailscale_secret = "tailscale"
-secrets = ["1password"]         # default; add other Modal secret names here
+secrets = ["1password", "claude-code"]  # defaults; add other Modal secret names here
 # region = "eu-west"
 
 [[clones]]
@@ -240,13 +240,76 @@ Do not keep secrets or large project directories alongside the flake: Nix copies
 the configuration directory into its store. Runtime credentials belong in Modal secrets.
 
 Use a project `flake.nix` + `flake.lock` and `nix develop` for project-specific tools;
-mise is available for existing `mise.toml` workflows. Install and authenticate your
-preferred coding agents inside the box, or supply named Modal secrets explicitly.
+mise is available for existing `mise.toml` workflows. Pi and Claude Code are already
+installed and configured through Home Manager; see [Coding agents](#coding-agents).
 The current Modal image targets x86_64 Linux; the client can run on other host architectures.
 Nix evaluation uses one thread because parallel evaluation intermittently failed
 to start build workers in this container runtime. Builds can still run in parallel.
 An intermittent `unexpected EOF reading a line` worker failure has also occurred
 with this setting; the active Home Manager generation stays unchanged on a failed build.
+
+## Coding agents
+
+New images install **Pi and Claude Code through Home Manager**, with this host's
+model/UI preferences, Pi keybindings, compaction/retry settings, rules, presets,
+Loggly agent definition, Exa MCP declaration, 15 Pi packages, the host-local Herdr
+extension, and Claude's Delta and TypeScript plugins. Configuration lives in the editable `pi.nix` and `claude.nix`
+next to `home.nix`. Both agents' JSON settings stay writable; declared values win
+on `home-manager switch`. The Pi Claude bridge uses the Nix-managed Claude binary.
+
+Before creating a new box:
+
+- Authenticate Pi locally: `~/.pi/agent/auth.json` must be valid JSON. Box transfers
+  it through runtime stdin to `/root/.pi/agent/auth.json` with mode `0600`, **not**
+  through the image build, Nix store, command arguments or registry. This happens
+  once during initial setup. Resume retains the sandbox's credentials, including
+  any tokens Pi refreshed; it does not require the original client's file.
+- Create a Modal secret named **`claude-code`** with
+  **`CLAUDE_CODE_OAUTH_TOKEN`**, generated with `claude setup-token`. The default
+  `secrets` list attaches it on creation and resume. If you override `secrets` in
+  `box.toml`, include `claude-code` explicitly. The token is passed to SDK execs
+  and to SSH/Rex shells through the root-only runtime environment file, refreshed
+  at every boot. It is stripped from the long-running network daemons.
+
+The minimal fresh `~/.claude.json` is:
+
+```json
+{"hasCompletedOnboarding": true}
+```
+
+This skips onboarding, **not authentication**: Claude still needs a valid OAuth
+token. No `oauthAccount`, account IDs, host project trust, `.credentials.json`,
+login caches or full host `.claude.json` are copied. Project trust/safety prompts
+can still appear. Home Manager seeds this state only when absent, never overwriting
+an existing file. An expired setup token must be replaced in Modal and the box
+paused/resumed to receive it; it is not a refresh-token login.
+
+```sh
+box up dev
+box ssh dev
+pi
+claude
+```
+
+The Herdr extension is copied unchanged and stays inactive unless `HERDR_ENV=1`,
+`HERDR_SOCKET_PATH` and `HERDR_PANE_ID` are supplied; Box does not install the Herdr
+application or configure a connection to the host. Host session history,
+account-synced Claude skills, SOPS wrappers and integration credentials are
+intentionally not copied. Loggly,
+Atlassian, Exa and other integrations still need their respective credentials;
+their installation is not proof of authentication. Pi packages and Claude plugins
+follow the host's unversioned declarations and are fetched when the base image is
+built; core binaries are pinned by `flake.lock`.
+
+**Snapshots contain Pi auth and runtime tokens. Treat snapshots as credentials.**
+Do not share them. Cloned OAuth refresh tokens can also be invalidated by refresh
+or logout on either machine. Old boxes keep their saved images/configuration;
+create a new box to get this setup automatically.
+
+Run `dotenvx run --quiet --strict -f .env -- uv run --extra remote python
+scripts/smoke_agents.py` for the opt-in live check. It creates a uniquely named box,
+checks real interactive terminals, SSH inference and snapshot resume, then removes
+its box and network logins. See [agent verification](docs/agents.md) for details.
 
 ## Humans and agents
 
@@ -282,7 +345,8 @@ Use `box exec --cwd / NAME -- ls -la` to inspect it, then `box up NAME` to finis
 An explicit `--cwd` permits diagnostics but does not mark setup complete.
 
 Creation, interrupted live setup and snapshot recovery use the same setup steps:
-working directory, pending initial clones, saved Git identity, then networking.
+working directory, initial Pi authentication (new images), pending initial clones,
+saved Git identity, then networking.
 Completed clones are never recopied. A pending clone needs its original source
 on the client running `box up`; a missing source leaves setup incomplete. If a
 copy finished but its completion was not recorded, a nonempty destination is

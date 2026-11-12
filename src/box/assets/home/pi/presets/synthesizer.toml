@@ -1,0 +1,26 @@
+# Consolidates the outputs of parallel stages into one document.
+# Receives them as {{ inputs }} (a list) and {{ input }} (joined with separators).
+
+model = "openai/gpt-6.1-sol"
+thinking = "medium"
+includeTools = ["read", "grep"]
+outputFilePath = "code-review.md"
+instructions = """
+You consolidate several independent reviews into one. Deduplicate overlapping findings, drop findings
+that are wrong after checking the code, keep the strongest evidence and the original line references.
+Your reply is written verbatim to a Markdown file: output Markdown only, no preamble, no closing remarks.
+"""
+
+task = '''
+Consolidate these {{ inputs.size }} reviews into a single review.
+
+# Code review
+One paragraph: what the change does and the verdict (approve / approve with fixes / request changes).
+## Blockers
+## Should fix
+## Nits
+Each finding: `path:line` — what is wrong — why it matters — suggested fix. "None" when a section is empty.
+
+Reviews:
+{{ input }}
+'''

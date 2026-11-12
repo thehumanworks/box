@@ -42,7 +42,7 @@ class Config:
     region: str | None = None
     clones: list[dict] = field(default_factory=list)
     volumes: dict[str, str] = field(default_factory=dict)
-    secrets: list[str] = field(default_factory=lambda: ["1password"])
+    secrets: list[str] = field(default_factory=lambda: ["1password", "claude-code"])
 
     def validate(self):
         name_value(self.name)

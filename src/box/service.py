@@ -10,6 +10,7 @@ from pathlib import Path
 
 import modal
 
+from box.agents import install_pi_auth, read_pi_auth
 from box.config import Config, name_value, remote_path
 from box.state import APP_NAME, Registry, timestamp
 
@@ -151,6 +152,7 @@ class Service:
                 for clone in config.clones:
                     if not Path(clone["source"]).is_dir():
                         raise ValueError(f"Clone source is not a directory: {clone['source']}")
+                read_pi_auth()  # Fail before creating compute; never persist credentials.
                 identity = git_identity()
                 image = build_image()
                 record = {
@@ -165,6 +167,7 @@ class Service:
                         "complete": False,
                         "phase": "workdir",
                         "git_applied": False,
+                        "pi_auth_applied": False,
                     },
                     "snapshot_on_exit": True,
                 }
@@ -236,6 +239,11 @@ class Service:
         try:
             checkpoint("workdir")
             self._ensure_workdir(sb, config.workdir)
+            if not setup.get("pi_auth_applied", True):
+                checkpoint("agents")
+                install_pi_auth(sb)
+                setup["pi_auth_applied"] = True
+                self.registry.save(record)
             checkpoint("clones")
             for clone in config.clones:
                 destination = clone["destination"]

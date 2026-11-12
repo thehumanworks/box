@@ -136,6 +136,8 @@
                 uv venv --python "${pkgs.python3}/bin/python3" .venv
               fi
               source .venv/bin/activate
+              # Prefer the latest explicit nix build over the virtualenv's CLI.
+              export PATH="$PWD/result/bin:$PATH"
             '';
             UV_PYTHON_DOWNLOADS = "never";
             UV_LINK_MODE = "copy";

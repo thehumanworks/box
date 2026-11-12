@@ -130,7 +130,7 @@ for entry in Path('/proc').iterdir():
         if b'--socket=/run/box/tailscaled.sock' in argv:
             pids.append(int(entry.name))
 assert len(pids) == 2, 'expected both managed daemons'
-forbidden = {b'OP_SERVICE_ACCOUNT_TOKEN', b'TAILSCALE_AUTHKEY',
+forbidden = {b'OP_SERVICE_ACCOUNT_TOKEN', b'CLAUDE_CODE_OAUTH_TOKEN', b'TAILSCALE_AUTHKEY',
              b'TAILSCALE_AUTH_KEY', b'TS_AUTHKEY'}
 for pid in pids:
     entries = Path('/proc', str(pid), 'environ').read_bytes().split(b'\\0')

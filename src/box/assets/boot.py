@@ -21,6 +21,7 @@ def runtime_environment():
     env = dict(os.environ)
     for name in (
         "OP_SERVICE_ACCOUNT_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
         "TAILSCALE_AUTHKEY",
         "TAILSCALE_AUTH_KEY",
         "TS_AUTHKEY",

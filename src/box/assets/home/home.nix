@@ -5,6 +5,8 @@
 # Runtime credentials belong in Modal secrets, never in this directory.
 { lib, pkgs, ... }:
 {
+  imports = [ ./pi.nix ./claude.nix ];
+
   home.username = "root";
   home.homeDirectory = "/root";
   # Compatibility baseline; do not bump this merely to update packages.

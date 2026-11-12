@@ -1,0 +1,25 @@
+# Usage:
+#   asx yeet
+#   asx yeet --args '{"prompt": "mention the migration"}'
+#   asx yeet --render   # preview the prompt without calling the model
+
+model = "openai/gpt-6.1-terra"
+thinking = "medium"
+instructions = "You create commit messages for the staged changes. Reply with the commit message only: a short imperative subject line, then an optional body explaining why."
+outputFilePath = "/root/commit-message.txt"
+
+# LiquidJS template. {% sh <cmd> %} runs the command in `cwd` and inserts its stdout.
+task = '''
+Staged changes:
+{% sh git diff --staged %}
+
+Recent commits for style reference:
+{% sh git log --oneline -n 5 2>/dev/null || true %}
+
+Current working dir:
+{{ cwd }}
+{% if args.prompt %}
+User prompt:
+{{ args.prompt }}
+{% endif %}
+'''

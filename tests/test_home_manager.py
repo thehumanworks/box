@@ -152,7 +152,13 @@ def test_boot_ignores_profiles_strips_secrets_and_cleans_both_daemons(tmp_path, 
     profile = tmp_path / "broken-profile.sh"
     marker = tmp_path / "profile-was-sourced"
     profile.write_text(f"touch {shlex.quote(str(marker))}; exit 90\n")
-    secrets = ("OP_SERVICE_ACCOUNT_TOKEN", "TAILSCALE_AUTHKEY", "TAILSCALE_AUTH_KEY", "TS_AUTHKEY")
+    secrets = (
+        "OP_SERVICE_ACCOUNT_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "TAILSCALE_AUTHKEY",
+        "TAILSCALE_AUTH_KEY",
+        "TS_AUTHKEY",
+    )
     for name in ("tailscaled", "rex"):
         daemon = tmp_path / name
         program = tmp_path / f"{name}.py"

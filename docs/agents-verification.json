@@ -1,0 +1,38 @@
+{
+  "name": "box-agents-smoke-02cd2f0b",
+  "success": true,
+  "checks": [
+    "private Pi auth copy matches client; OAuth env present; no Claude credential file",
+    "fresh image has only the minimal Claude state and no cloned Pi device ID",
+    "Rex terminfo/SSH guard and credential-free daemon environments",
+    "host settings, extensions, plugins and Nix Claude bridge configured",
+    "all 15 Pi packages and both Claude plugins installed",
+    "Home Manager reactivation replaces declared arrays and preserves runtime state",
+    "claude-empty real PTY",
+    "claude-minimal real PTY",
+    "claude-configured real PTY",
+    "pi real PTY",
+    "Pi Claude bridge authenticates through the Nix Claude binary",
+    "real SSH shell receives OAuth token and Claude inference succeeds",
+    "snapshot resume retains Pi auth and refreshes OAuth shell credentials"
+  ],
+  "sandbox_id": "sb-01M6QEQ24WN4SF1N4D4048E4N5",
+  "versions": "1.5.0\n2.1.318 (Claude Code)",
+  "claude-empty": {
+    "mode": "claude-empty",
+    "onboarding": true
+  },
+  "claude-minimal": {
+    "mode": "claude-minimal",
+    "authenticated_reply": true
+  },
+  "claude-configured": {
+    "mode": "claude-configured",
+    "authenticated_reply": true
+  },
+  "pi": {
+    "mode": "pi",
+    "authenticated_reply": true
+  },
+  "cleanup": "test box and network logins removed"
+}

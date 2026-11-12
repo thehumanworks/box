@@ -1,0 +1,25 @@
+# A judge for `repeat … until @judge max N`:
+#
+#   asx 'repeat (@code-review * 2 -> @synthesizer -> @coder) until @judge max 3'
+#
+# output = "verdict" appends an instruction to end the reply with {"approved": true|false, "feedback": "…"}.
+# asx reads the last such object; no verdict counts as a rejection, so a loop never approves by accident.
+# The feedback reaches the next iteration's templates as {{ feedback }}.
+
+model = "openai/gpt-6.1-sol"
+thinking = "medium"
+output = "verdict"
+includeTools = ["read", "grep", "find", "ls", "bash"]
+instructions = "You are a strict reviewer. Verify claims against the working tree before approving."
+
+task = '''
+The previous stage reports:
+
+{{ input }}
+
+{% if iteration %}This is iteration {{ iteration }}.{% endif %}
+Working tree status:
+{% sh git status --short %}
+
+Approve only if the work is complete and correct. Otherwise reject and say precisely what must change.
+'''

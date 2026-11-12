@@ -4,7 +4,7 @@ cpu = 2
 memory = 4096
 timeout = 86400
 tailscale_secret = "tailscale"
-secrets = ["1password"]
+secrets = ["1password", "claude-code"]
 
 [[clones]]
 source = "."

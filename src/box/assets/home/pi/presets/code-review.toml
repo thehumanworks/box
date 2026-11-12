@@ -1,0 +1,36 @@
+# One reviewer with a focus. Run several in parallel and consolidate:
+#
+#   asx '@code-review * [correctness, security, maintainability] -> @synthesizer'
+#   asx '@code-review * [correctness, security, maintainability] -> @synthesizer' --args '{"range": "main..HEAD"}'
+#
+# Each copy gets the same diff and its own {{ copy.variant }}.
+
+model = "openai/gpt-6.1-sol"
+thinking = "high"
+includeTools = ["read", "grep", "find", "ls", "bash"]
+instructions = """
+You are one of several reviewers working in parallel, each with a different focus. Stay on yours.
+Report concrete findings only, each with a file path and line reference and the relevant code quoted.
+Rank each finding: blocker, should-fix or nit. If your focus area is clean, say so briefly.
+Do not modify files and do not summarize the whole change; the synthesizer does that.
+"""
+
+task = '''
+Review focus: {{ copy.variant | default: "general" }}
+{% case copy.variant %}
+{% when "correctness" %}
+Logic errors, unhandled edge cases, broken invariants, races, error handling that swallows failures.
+{% when "security" %}
+Injection (shell, SQL, template), path traversal, unsafe deserialization, secrets in code or logs, missing checks at trust boundaries.
+{% when "maintainability" %}
+Unclear naming, duplicated logic, misleading comments, untested paths, dead code, departures from nearby conventions.
+{% endcase %}
+
+Files changed:
+{{ "git diff --stat " | append: args.range | default: "git diff --stat --staged" | sh }}
+
+Diff:
+{{ "git diff " | append: args.range | default: "git diff --staged" | sh }}
+
+You may read any file in the repository for context. The working directory is {{ cwd }}.
+'''

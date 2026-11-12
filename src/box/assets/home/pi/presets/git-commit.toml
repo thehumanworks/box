@@ -1,0 +1,27 @@
+# Write a commit message for the staged changes.
+#
+#   asx git-commit
+#   asx git-commit --args '{"prompt": "mention the migration"}'
+#   asx git-commit --render        # preview the prompt; nothing runs
+#
+# Copy into ~/.pi/agent/presets/ (every project) or <project>/.pi/presets/.
+
+model = "openai/gpt-6.1-sol"
+thinking = "medium"
+instructions = "You write concise, conventional git commit messages. Reply with the commit message only: an imperative subject line under 72 characters, then an optional body explaining why."
+# The agent is a full pi session with every pi tool unless filtered. Read-only is enough here.
+includeTools = ["read", "grep", "find", "ls", "bash"]
+# The reply is also written here, relative to the directory asx runs in.
+outputFilePath = ".git/ASX_COMMIT_MSG"
+
+# LiquidJS template. {% sh <cmd> %} inserts a command's stdout; a failing command fails the run.
+task = '''
+Staged changes:
+{% sh git diff --staged %}
+
+Recent commits, for style:
+{% sh git log --oneline -n 5 2>/dev/null || true %}
+{% if args.prompt %}
+Also: {{ args.prompt }}
+{% endif %}
+'''

@@ -128,6 +128,12 @@ def lifecycle(monkeypatch):
     monkeypatch.setattr(service.modal.Secret, "from_name", lambda name: ("secret", name))
     monkeypatch.setattr(environment, "build_image", provider.build_image)
     monkeypatch.setattr(service, "git_identity", lambda: {})
+    monkeypatch.setattr(service, "read_pi_auth", lambda: b'{"test": "private-token"}')
+    monkeypatch.setattr(
+        service,
+        "install_pi_auth",
+        lambda sb: sb.files.setdefault("/root/.pi/agent/auth.json", "private-token"),
+    )
     monkeypatch.setattr(
         environment,
         "start_network",
@@ -159,16 +165,65 @@ def test_create_and_timeout_resume_preserve_files_and_enable_exit_snapshots(life
     assert resumed["hostname"] == created["hostname"]
 
 
-def test_default_1password_secret_is_attached_on_creation_and_restored_on_resume(lifecycle):
+def test_default_agent_secrets_are_attached_on_creation_and_restored_on_resume(lifecycle):
     lifecycle.service.up(Config())
-    assert lifecycle.registry.get("dev")["config"]["secrets"] == ["1password"]
+    assert lifecycle.registry.get("dev")["config"]["secrets"] == ["1password", "claude-code"]
     lifecycle.service.pause("dev")
     # A caller's current configuration must not erase saved runtime credentials.
     lifecycle.service.up(Config(secrets=[]), resume_only=True)
     assert [kwargs["secrets"] for _, kwargs in lifecycle.provider.creations] == [
-        [("secret", "1password")],
-        [("secret", "1password")],
+        [("secret", "1password"), ("secret", "claude-code")],
+        [("secret", "1password"), ("secret", "claude-code")],
     ]
+
+
+def test_pi_auth_is_copied_once_and_not_stored_in_registry(lifecycle, monkeypatch):
+    created = lifecycle.service.up(Config())
+    sb = lifecycle.provider.sandboxes[created["sandbox_id"]]
+    assert sb.files["/root/.pi/agent/auth.json"] == "private-token"
+    assert "private-token" not in repr(lifecycle.data.writes)
+    sb.files["/root/.pi/agent/auth.json"] = "refreshed-token"
+
+    def unavailable(*args):
+        raise AssertionError("resume must not read client credentials")
+
+    monkeypatch.setattr(service, "read_pi_auth", unavailable)
+    monkeypatch.setattr(service, "install_pi_auth", unavailable)
+    lifecycle.service.up(Config())
+    lifecycle.service.pause("dev")
+    resumed = lifecycle.service.up(Config(), resume_only=True)
+    restored = lifecycle.provider.sandboxes[resumed["sandbox_id"]]
+    assert restored.files["/root/.pi/agent/auth.json"] == "refreshed-token"
+
+
+def test_missing_pi_auth_fails_before_build_or_creation(lifecycle, monkeypatch):
+    def unavailable():
+        raise ValueError("missing Pi auth")
+
+    monkeypatch.setattr(service, "read_pi_auth", unavailable)
+    with pytest.raises(ValueError, match="missing Pi auth"):
+        lifecycle.service.up(Config())
+    assert lifecycle.provider.builds == 0
+    assert not lifecycle.provider.creations
+    assert lifecycle.registry.get("dev") is None
+
+
+def test_interrupted_agent_setup_resumes_without_claiming_auth_complete(lifecycle, monkeypatch):
+    original = service.install_pi_auth
+
+    def unavailable(sb):
+        raise ValueError("transfer not confirmed")
+
+    monkeypatch.setattr(service, "install_pi_auth", unavailable)
+    with pytest.raises(ValueError, match="transfer not confirmed"):
+        lifecycle.service.up(Config())
+    record = lifecycle.registry.get("dev")
+    assert record["setup"]["phase"] == "agents"
+    assert record["setup"]["pi_auth_applied"] is False
+    assert not record["setup"]["complete"]
+    monkeypatch.setattr(service, "install_pi_auth", original)
+    lifecycle.service.up(Config())
+    assert lifecycle.registry.get("dev")["setup"]["pi_auth_applied"] is True
 
 
 def test_pause_then_resume_uses_saved_snapshot(lifecycle):

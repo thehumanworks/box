@@ -218,7 +218,7 @@ class SSHCredentialTests(unittest.TestCase):
                     ssh_env.write_environment(directory)
                 self.assertEqual(
                     (directory / "ssh-env.sh").read_text(),
-                    f"export OP_SERVICE_ACCOUNT_TOKEN={token}\n",
+                    f"export OP_SERVICE_ACCOUNT_TOKEN={token}\nunset CLAUDE_CODE_OAUTH_TOKEN\n",
                 )
             with patch.dict(os.environ, {}, clear=True):
                 ssh_env.write_environment(directory)
@@ -242,7 +242,8 @@ class SSHCredentialTests(unittest.TestCase):
             with patch.dict(os.environ, {"TAILSCALE_AUTHKEY": "never-persist"}, clear=True):
                 ssh_env.write_environment(directory)
             self.assertEqual(
-                (directory / "ssh-env.sh").read_text(), "unset OP_SERVICE_ACCOUNT_TOKEN\n"
+                (directory / "ssh-env.sh").read_text(),
+                "unset OP_SERVICE_ACCOUNT_TOKEN\nunset CLAUDE_CODE_OAUTH_TOKEN\n",
             )
 
 
