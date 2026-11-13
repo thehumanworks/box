@@ -117,7 +117,8 @@ function buildChecks(tools: PinnedTool[]): Check[] {
     // The image contract: a tool works even when the provider drops the image ENV.
     checks.push({
       name: `${name} runs without the image ENV`,
-      argv: ["env", "-i", `PATH=${DEFAULT_PATH}`, ...argv],
+      // HOME is not image ENV: every provider sets it, and some tools refuse to start without it.
+      argv: ["env", "-i", "HOME=/root", `PATH=${DEFAULT_PATH}`, ...argv],
       verify,
     });
   }
