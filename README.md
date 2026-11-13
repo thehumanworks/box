@@ -9,10 +9,10 @@ find the same tools in it. A local machine is only the control plane.
 
 | Part | State |
 |---|---|
-| Base image definition (`image/`) | Done. Builds with Docker and with Modal's builder. |
-| Smoke test on Modal | Passes when run from a local machine. |
-| Smoke test on Vercel Sandbox | Passes when run from a local machine. |
-| Build and push in GitHub Actions | Written. Not run yet. |
+| Base image definition (`image/`) | Done. |
+| Build and push in GitHub Actions | Done. One build goes to both registries. |
+| Smoke test on Modal | Passes in GitHub Actions. |
+| Smoke test on Vercel Sandbox | Passes in GitHub Actions. |
 | Secrets, sandbox CLI, HTTP API and MCP server | Not started. |
 
 ## Layout
@@ -88,6 +88,6 @@ Add these in the repository settings, under "Secrets and variables", "Actions":
 The image name on Vercel is `vcr.vercel.com/<VERCEL_TEAM>/<VERCEL_PROJECT>/base`.
 The Vercel steps are skipped while `VERCEL_TEAM` is not set.
 
-GitHub can create the container package as private. Modal then cannot pull it. If the
-Modal smoke test fails on the image pull, open the package settings on GitHub and set the
-visibility to public. This is necessary only one time.
+GitHub creates the container package as private, and Modal then cannot pull it. The
+package of this repository is already public. In a new repository, open the package
+settings on GitHub after the first build and set the visibility to public.
