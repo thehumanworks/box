@@ -2,7 +2,7 @@
   "name": "box",
   "private": true,
   "type": "module",
-  "description": "Agent sandboxes on Modal and Vercel Sandbox from one base image",
+  "description": "One Nix-defined environment for my machines and my agent sandboxes",
   "engines": {
     "node": ">=24"
   },
@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "@vercel/sandbox": "^4.0.0",
-    "modal": "^0.11.1",
-    "smol-toml": "^1.9.1"
+    "modal": "^0.11.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

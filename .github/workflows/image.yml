@@ -1,4 +1,4 @@
-# Builds the base image once, pushes the same image to both registries, and starts a
+# Builds the sandbox image once, pushes the same image to both registries, and starts a
 # sandbox from it on each provider.
 #
 # Required configuration (Settings > Secrets and variables > Actions):
@@ -11,7 +11,12 @@ on:
   push:
     branches: [main]
     paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - home/**
       - image/**
+      - .dockerignore
       - src/**
       - package.json
       - package-lock.json
@@ -33,6 +38,16 @@ env:
   VCR_IMAGE: vcr.vercel.com/${{ vars.VERCEL_TEAM }}/${{ vars.VERCEL_PROJECT }}/base
 
 jobs:
+  flake:
+    name: Check the flake
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      # Evaluates every output and checks the format. It does not build the home;
+      # the image build does that.
+      - run: nix flake check
+
   typecheck:
     name: Type-check
     runs-on: ubuntu-24.04
@@ -80,7 +95,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
-          context: image
+          context: .
+          file: image/Dockerfile
           platforms: linux/amd64
           push: true
           provenance: false

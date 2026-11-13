@@ -1,0 +1,7 @@
+# The image build needs only the Nix flake. Everything else stays out of the context,
+# so a change to other files does not rebuild the image layers.
+*
+!flake.nix
+!flake.lock
+!nix
+!home

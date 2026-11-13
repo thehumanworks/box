@@ -1,5 +1,5 @@
 /**
- * Smoke test of the base image.
+ * Smoke test of the sandbox image.
  *
  * Starts one sandbox from the image on one provider, runs a fixed list of checks,
  * and destroys the sandbox. The exit code is 0 only if all checks pass.
@@ -7,9 +7,7 @@
  *   node src/smoke.ts --provider modal  --image ghcr.io/<owner>/<repo>/base@sha256:<digest>
  *   node src/smoke.ts --provider vercel --image vcr.vercel.com/<team>/<project>/base@sha256:<digest>
  */
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { parse as parseToml } from "smol-toml";
 import { modal } from "./providers/modal.ts";
 import type { ExecResult, Provider, SandboxHandle } from "./providers/types.ts";
 import { vercel } from "./providers/vercel.ts";
@@ -19,8 +17,15 @@ const PROVIDERS: Record<string, Provider> = { modal, vercel };
 /** The sandbox needs a short life only. The provider stops it if this process dies. */
 const SANDBOX_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** The PATH of a Linux process when nothing sets one. It does not contain the mise directories. */
-const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+/** The record of installed agents that the home writes (home/profiles/agents.nix). */
+const MANIFEST_PATH = "/root/.config/box/manifest.json";
+
+/** The global instruction file of each agent (home/profiles/agents.nix). */
+const INSTRUCTION_FILES = ["/root/.claude/CLAUDE.md", "/root/.codex/AGENTS.md", "/root/.pi/agent/AGENTS.md"];
+
+interface Manifest {
+  agents: { command: string; version: string }[];
+}
 
 interface Check {
   name: string;
@@ -29,46 +34,44 @@ interface Check {
   verify?: (result: ExecResult) => string | undefined;
 }
 
-/** Reads the pinned tool versions from the config that the image installs. */
-function pinnedTools(): Record<string, string> {
-  const path = new URL("../image/mise.toml", import.meta.url);
-  const config = parseToml(readFileSync(path, "utf8")) as { tools?: Record<string, unknown> };
-  const tools: Record<string, string> = {};
-  for (const [tool, version] of Object.entries(config.tools ?? {})) {
-    if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
-      throw new Error(`image/mise.toml must pin ${tool} to an exact version. Found: ${JSON.stringify(version)}`);
-    }
-    tools[tool] = version;
-  }
-  return tools;
-}
-
 function expectOutput(expected: string) {
   return ({ stdout }: ExecResult) =>
     stdout.includes(expected) ? undefined : `the output does not contain "${expected}"`;
 }
 
-function buildChecks(tools: Record<string, string>): Check[] {
-  const checks: Check[] = [
-    { name: "mise runs", argv: ["mise", "--version"] },
-    { name: "git runs", argv: ["git", "--version"] },
-  ];
-
-  for (const [tool, version] of Object.entries(tools)) {
-    checks.push({
-      name: `${tool} is version ${version}`,
-      argv: [tool, "--version"],
-      verify: expectOutput(version),
-    });
-    // The image contract: a tool works even when the provider drops the image ENV.
-    checks.push({
-      name: `${tool} runs without the image ENV`,
-      argv: ["env", "-i", `PATH=${DEFAULT_PATH}`, tool, "--version"],
-      verify: expectOutput(version),
-    });
+/** Reads the manifest from the sandbox. The image is wrong if it is absent or invalid. */
+async function readManifest(sandbox: SandboxHandle): Promise<Manifest> {
+  const result = await sandbox.exec(["cat", MANIFEST_PATH]);
+  if (result.exitCode !== 0) {
+    throw new Error(`The image has no manifest at ${MANIFEST_PATH}: ${result.stderr.trim()}`);
   }
+  const manifest = JSON.parse(result.stdout) as Manifest;
+  if (!Array.isArray(manifest.agents) || manifest.agents.length === 0) {
+    throw new Error(`The manifest at ${MANIFEST_PATH} lists no agents.`);
+  }
+  return manifest;
+}
 
-  checks.push(
+function buildChecks(manifest: Manifest): Check[] {
+  const agentChecks = manifest.agents.map(({ command, version }) => ({
+    name: `${command} is version ${version}`,
+    argv: [command, "--version"],
+    verify: expectOutput(version),
+  }));
+
+  return [
+    ...agentChecks,
+    { name: "git runs", argv: ["git", "--version"] },
+    { name: "mise runs", argv: ["mise", "--version"] },
+    { name: "nix runs", argv: ["nix", "--version"] },
+    {
+      name: "nix reaches the public binary cache",
+      argv: ["nix", "store", "info", "--store", "https://cache.nixos.org"],
+    },
+    {
+      name: "each agent has the shared instructions",
+      argv: ["sh", "-c", INSTRUCTION_FILES.map((file) => `test -s ${file}`).join(" && ")],
+    },
     {
       name: "the user is root",
       argv: ["id", "-u"],
@@ -80,12 +83,11 @@ function buildChecks(tools: Record<string, string>): Check[] {
       verify: expectOutput("/workspace"),
     },
     {
-      name: "the image ENV is applied (PATH has the mise shims)",
+      name: "the image ENV is applied (PATH has the Nix profile)",
       argv: ["printenv", "PATH"],
-      verify: expectOutput("/usr/local/share/mise/shims"),
+      verify: expectOutput("/root/.nix-profile/bin"),
     },
-  );
-  return checks;
+  ];
 }
 
 function indent(text: string): string {
@@ -132,7 +134,6 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const checks = buildChecks(pinnedTools());
   console.log(`provider: ${provider.name}`);
   console.log(`image:    ${values.image}`);
 
@@ -141,13 +142,16 @@ async function main(): Promise<number> {
   console.log(`sandbox:  ${sandbox.id} (ready after ${((Date.now() - started) / 1000).toFixed(1)} s)\n`);
 
   let failures: number;
+  let total: number;
   try {
+    const checks = buildChecks(await readManifest(sandbox));
+    total = checks.length;
     failures = await runChecks(sandbox, checks);
   } finally {
     await sandbox.destroy();
   }
 
-  console.log(`\n${checks.length - failures} of ${checks.length} checks passed on ${provider.name}.`);
+  console.log(`\n${total - failures} of ${total} checks passed on ${provider.name}.`);
   return failures === 0 ? 0 : 1;
 }
 

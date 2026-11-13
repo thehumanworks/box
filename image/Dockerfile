@@ -1,54 +1,54 @@
-# Base image for agent sandboxes. The same image runs on Modal and on Vercel Sandbox.
+# The sandbox image: Ubuntu with the "sandbox" home of this repository's Nix flake.
 #
-# Rules that keep the image portable between the two providers:
+# The flake defines every tool. This file only puts the result into an image that both
+# Modal and Vercel Sandbox accept:
 #   - linux/amd64 only. Both providers require it.
 #   - No ENTRYPOINT and no CMD. Vercel Sandbox ignores them, so nothing may depend on them.
-#   - No USER. Modal always runs as root, so the image is built for root.
-#   - Nothing may depend on ENV alone. Every tool is also linked into /usr/local/bin,
-#     which is on the default PATH of every Linux process.
-#   - Only FROM, ARG, ENV, RUN, COPY and WORKDIR, without BuildKit-only syntax. Modal has
-#     its own Dockerfile builder, and this subset lets it build the file for local tests.
+#   - No USER. Modal always runs as root, so the home is root's.
+#   - Ubuntu as the base, so that programs which expect a usual Linux system also run,
+#     for example the tools that mise downloads.
 #   - No secrets. The image is public.
 #
-# The build context is this directory (image/).
+# The build context is the repository root. .dockerignore limits it to the flake.
 
+# Stage 1: build the home with Nix and copy it, with all it needs, to a new Nix store.
+FROM nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS home
+
+ENV NIX_CONFIG="experimental-features = nix-command flakes"
+
+WORKDIR /src
+COPY flake.nix flake.lock ./
+COPY nix ./nix
+COPY home ./home
+
+# The symbolic link in gcroots gives the home a fixed address in the image. It also keeps
+# the Nix garbage collector from deleting the home.
+RUN home="$(nix build --no-link --print-out-paths path:.#sandbox-home)" \
+    && nix copy --no-check-sigs --to "local?root=/out" "$home" \
+    && mkdir -p /out/nix/var/nix/gcroots \
+    && ln -s "$home" /out/nix/var/nix/gcroots/sandbox-home
+
+# Stage 2: the image.
 FROM ubuntu:noble-20261110@sha256:c1c5d8818eca0a4fd0c6c187d459a7af264e7fbf8561bde85e93be2a3bbc8f4a
 
-ARG MISE_VERSION=2026.10.17
-ARG MISE_SHA256=fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
-
+# Programs from Nix read the certificates of the system.
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        jq \
-        openssh-client \
-        ripgrep \
-        unzip \
-        xz-utils \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# mise is the tool manager. It is one static file, checked against a pinned checksum.
-RUN curl -fsSL -o /usr/local/bin/mise \
-        "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-x64" \
-    && echo "${MISE_SHA256}  /usr/local/bin/mise" | sha256sum -c - \
-    && chmod 0755 /usr/local/bin/mise
+COPY --from=home /out/nix /nix
 
-# The system-wide mise config and its lockfile define the agent tools and their versions.
-COPY mise.toml /etc/mise/config.toml
-COPY mise.lock /etc/mise/mise.lock
+# Home Manager needs USER. The profile directory holds every tool of the home.
+ENV USER=root
+ENV PATH="/root/.nix-profile/bin:${PATH}"
 
-# Install the tools for all users (/usr/local/share/mise) from the lockfile only.
-# Then link each shim into /usr/local/bin, so the tools work even if a provider drops ENV.
-RUN chmod 0644 /etc/mise/config.toml /etc/mise/mise.lock \
-    && mise install --system --locked \
-    && mise reshim --system \
-    && ln -s /usr/local/share/mise/shims/* /usr/local/bin/ \
-    && rm -rf /root/.cache/mise \
-    && echo 'eval "$(mise activate bash)"' >> /etc/bash.bashrc
-
-# Shims first: the user's own tools (added later with `mise use -g`), then the system tools.
-ENV PATH="/root/.local/share/mise/shims:/usr/local/share/mise/shims:${PATH}"
+# Activate the home: this links the tools into the profile and the files into /root.
+# Ubuntu's own shell files go first, because the home brings its own. The Nix settings of
+# the home are not in place before the activation, so NIX_CONFIG passes them for this step.
+RUN rm -f /root/.bashrc /root/.profile \
+    && home=/nix/var/nix/gcroots/sandbox-home \
+    && PATH="${home}/home-path/bin:${PATH}" \
+       NIX_CONFIG="$(cat "${home}/home-files/.config/nix/nix.conf")" \
+       "${home}/activate"
 
 WORKDIR /workspace
