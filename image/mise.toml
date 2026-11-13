@@ -1,17 +1,87 @@
 # System-wide mise config of the base image. The Dockerfile copies this file to
-# /etc/mise/config.toml. Versions are exact; `mise run image:lock` refreshes mise.lock.
+# /etc/mise/config.toml. Tools follow "latest", and mise.lock fixes the versions that the
+# build installs. `mise run image:lock` moves the lockfile to the newest releases.
 
 [tools]
-claude = "2.1.323"
-codex = "0.163.0"
-pi = "1.5.2"
+node = "latest"
+bun = "latest"
+pnpm = "latest"
+python = "latest"
+uv = "latest"
+rust = "latest"
+perl = "latest"
+ruby = "latest"
+
+# agent harnesses
+claude = "latest"
+codex = "latest"
+pi = "latest"
+
+# secret management
+doppler = "latest"
+fnox = { version = "latest", workflow = "release.yml" }
+
+# dev tools
+hunk = "latest"
+gh = "latest"
+helix = "latest"
+ripgrep = "latest"
+glow = "latest"
+fzf = "latest"
+
+# remote connections
+"github:thehumanworks/capnshell" = "latest"
+# tailscale is not in the image yet. `mise lock` must download the release from
+# pkgs.tailscale.com to record its checksum, and the network proxy of the machine that
+# made this lockfile blocks that site. Uncomment and run `mise run image:lock` on a
+# network that permits it.
+# tailscale = "latest"
+
+# agent tools
+"github:thehumanworks/wit" = "latest"
 
 [env]
-# The image pins the Claude Code version, so the tool must not update itself.
+# Entries here go before the tools on PATH. So no system directory is here: /usr/bin
+# would put the perl of Ubuntu before the perl of mise. The shims are on PATH from the
+# Dockerfile already.
+_.path = ["~/.local/bin"]
+SHELL = "/bin/bash"
+IS_SANDBOX = "1"
+GH_HOST = "github.com"
+
+# claude code env vars
+# The lockfile pins the Claude Code version, so the tool must not update itself.
 DISABLE_AUTOUPDATER = "1"
+CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "1"
+CLAUDE_CODE_DEFAULT_SUBAGENT_MODEL = "opus"
+CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL = "1h"
+CLAUDE_CODE_ENABLE_TODO_TOOLS = "1"
+CLAUDE_CODE_FORWARD_SUBAGENT_TEXT = "1"
+CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS = "100000"
+CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000"
+CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH = "1"
+CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "50"
+CLAUDE_CODE_NO_FLICKER = "1"
+
+[bootstrap.mise_shell_activate]
+bash = true
 
 [settings]
 # Sandboxes have no terminal to answer prompts.
 yes = true
 # The image pins the mise version, so a notice about a newer version is only noise.
 disable_update_warning = true
+minimum_release_age = "0d"
+python.compile = true
+ruby.compile = true
+npm.shell_out = true
+
+# `mise bootstrap` applies these in the Dockerfile. Sources are relative to this file,
+# so image/dotfiles/ becomes /etc/mise/dotfiles/. The files in /root are symlinks to
+# that directory, so what Claude Code and fnox write goes to /etc/mise/dotfiles/.
+[dotfiles]
+"~/.claude.json" = { source = "dotfiles/.claude.json", mode = "symlink" }
+"~/.config/fnox/config.toml" = { source = "dotfiles/fnox.toml", mode = "symlink" }
+"~/.bashrc/fnox-activate" = { block = '''
+eval "$(fnox activate bash)"
+''' }

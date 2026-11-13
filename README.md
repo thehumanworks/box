@@ -19,9 +19,10 @@ find the same tools in it. A local machine is only the control plane.
 
 | Path | Content |
 |---|---|
-| `image/Dockerfile` | The base image: Ubuntu 24.04, mise, and the agent tools. |
-| `image/mise.toml` | The agent tools and their exact versions. It becomes `/etc/mise/config.toml`. |
-| `image/mise.lock` | Download addresses and checksums for those versions. Generated. |
+| `image/Dockerfile` | The base image: Ubuntu 24.04, a C toolchain, mise, and the tools. |
+| `image/mise.toml` | The tools, the environment and the dotfiles. It becomes `/etc/mise/config.toml`. |
+| `image/mise.lock` | The exact versions, download addresses and checksums of the tools. Generated. |
+| `image/dotfiles/` | Default config files that the build copies into `/root`. |
 | `src/providers/` | One small adapter for each provider: create a sandbox, run a command, destroy. |
 | `src/smoke.ts` | The smoke test. |
 | `.github/workflows/image.yml` | Builds the image, pushes it, and runs the smoke test on each provider. |
@@ -32,21 +33,37 @@ Later work can rely on these properties. The smoke test checks each of them.
 
 - The platform is `linux/amd64`.
 - The user is root, and the working directory is `/workspace`.
-- `mise`, `claude`, `codex`, `pi` and `git` are on `PATH`.
-- The agent tools are at the versions in `image/mise.toml`. Claude Code does not update itself.
-- The agent tools also run when a provider drops the image environment, because each tool
+- `mise`, `git`, a C compiler and every tool in `image/mise.toml` are on `PATH`: the
+  language runtimes (Node.js, Bun, Python, Rust, Perl, Ruby), the agents (`claude`,
+  `codex`, `pi`), and the secret and developer tools.
+- The tools are at the versions in `image/mise.lock`. Claude Code does not update itself.
+- The tools also run when a provider drops the image environment, because each tool
   is linked into `/usr/local/bin`.
+- `/root` has the default config files: `~/.claude.json` (Claude Code starts without the
+  onboarding) and `~/.config/fnox/config.toml` (the secrets that fnox reads from Doppler).
+- An interactive bash shell activates mise and fnox. The variables in `[env]` of
+  `image/mise.toml` apply there, and to each tool that starts through its mise shim.
+  fnox loads the secrets only if the sandbox has a Doppler token (`DOPPLER_TOKEN`).
 - The image has no `ENTRYPOINT` and no `CMD`. Start every process with the provider's
   "run command" call.
-- The image contains no secrets. It is public.
+- The image contains no secrets. It is public. `image/dotfiles/fnox.toml` has only the
+  names of the secrets and of the Doppler project.
 
 To add a tool in a running sandbox, use mise: `mise use -g node@24`.
 
-## Change a tool version
+## Add or update a tool
 
-1. Edit the version in `image/mise.toml`. Use an exact version.
+The tools in `image/mise.toml` follow `latest`. The lockfile fixes the versions, so the
+same commit always builds the same tools.
+
+1. To add a tool, add it to `image/mise.toml`, and add its program to `PROBES` in
+   `src/smoke.ts`. To update all tools to their newest releases, change nothing.
 2. Run `mise run image:lock`. The first time, run `mise trust image/mise.toml` before.
-3. Commit both files. The build installs only what the lockfile contains.
+3. Commit the changed files. The build installs only what the lockfile contains.
+
+`mise lock` downloads some releases to record their checksums, so the network must permit
+each download site. Tailscale is not in the image for this reason: see the note in
+`image/mise.toml`.
 
 To change the mise version, edit `MISE_VERSION` and `MISE_SHA256` in `image/Dockerfile`.
 The checksum is in `SHASUMS256.txt` of the mise release.
@@ -87,6 +104,9 @@ Add these in the repository settings, under "Secrets and variables", "Actions":
 
 The image name on Vercel is `vcr.vercel.com/<VERCEL_TEAM>/<VERCEL_PROJECT>/base`.
 The Vercel steps are skipped while `VERCEL_TEAM` is not set.
+
+Each build has the commit SHA as its tag. On `main`, a build that passes the smoke tests
+also gets the tag `latest` on GitHub Container Registry: `ghcr.io/<owner>/<repo>/base:latest`.
 
 GitHub creates the container package as private, and Modal then cannot pull it. The
 package of this repository is already public. In a new repository, open the package

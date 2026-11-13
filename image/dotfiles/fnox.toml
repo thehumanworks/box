@@ -1,0 +1,12 @@
+default_provider = "doppler"
+
+[providers.doppler]
+type = "doppler"
+project = "vault"
+config = "prd"
+
+[secrets]
+GH_TOKEN = { provider = "doppler", value = "GH_TOKEN" }
+AI_GATEWAY_API_KEY = { provider = "doppler", value = "AI_GATEWAY_API_KEY" }
+CLAUDE_CODE_OAUTH_TOKEN = { provider = "doppler", value = "CLAUDE_CODE_OAUTH_TOKEN" }
+TAILSCALE_AUTHKEY = { provider = "doppler", value = "TAILSCALE_AUTHKEY" }
