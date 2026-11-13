@@ -9,17 +9,20 @@ const IMAGE_READY_POLL_MS = 15 * 1000;
 /**
  * Reads an access token and its scope from the environment.
  *
+ * VERCEL_TEAM is the team slug or the team ID. VERCEL_PROJECT is the project name or
+ * the project ID. The Vercel API accepts both forms.
+ *
  * With all three variables set, the SDK uses them. With none set, the SDK falls back
  * to its default, the VERCEL_OIDC_TOKEN that `vercel env pull` writes.
  */
 function credentialsFromEnv(): { token: string; teamId: string; projectId: string } | undefined {
-  const { VERCEL_TOKEN, VERCEL_TEAM_ID, VERCEL_PROJECT_ID } = process.env;
-  const present = [VERCEL_TOKEN, VERCEL_TEAM_ID, VERCEL_PROJECT_ID].filter(Boolean).length;
+  const { VERCEL_TOKEN, VERCEL_TEAM, VERCEL_PROJECT } = process.env;
+  const present = [VERCEL_TOKEN, VERCEL_TEAM, VERCEL_PROJECT].filter(Boolean).length;
   if (present === 0) return undefined;
-  if (!VERCEL_TOKEN || !VERCEL_TEAM_ID || !VERCEL_PROJECT_ID) {
-    throw new Error("Set all of VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID, or none of them.");
+  if (!VERCEL_TOKEN || !VERCEL_TEAM || !VERCEL_PROJECT) {
+    throw new Error("Set all of VERCEL_TOKEN, VERCEL_TEAM and VERCEL_PROJECT, or none of them.");
   }
-  return { token: VERCEL_TOKEN, teamId: VERCEL_TEAM_ID, projectId: VERCEL_PROJECT_ID };
+  return { token: VERCEL_TOKEN, teamId: VERCEL_TEAM, projectId: VERCEL_PROJECT };
 }
 
 function isImageNotReady(error: unknown): boolean {

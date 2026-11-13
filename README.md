@@ -9,10 +9,10 @@ find the same tools in it. A local machine is only the control plane.
 
 | Part | State |
 |---|---|
-| Base image definition (`image/`) | Done. Builds and passes all checks on Modal. |
-| Build and push in GitHub Actions | Written. Not run yet. |
+| Base image definition (`image/`) | Done. Builds with Docker and with Modal's builder. |
 | Smoke test on Modal | Passes when run from a local machine. |
-| Smoke test on Vercel Sandbox | Written. Not run yet. |
+| Smoke test on Vercel Sandbox | Passes when run from a local machine. |
+| Build and push in GitHub Actions | Written. Not run yet. |
 | Secrets, sandbox CLI, HTTP API and MCP server | Not started. |
 
 ## Layout
@@ -62,7 +62,10 @@ node src/smoke.ts --provider vercel --image vcr.vercel.com/<team>/<project>/base
 Credentials:
 
 - Modal: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or the active profile in `~/.modal.toml`.
-- Vercel: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID`.
+- Vercel: `VERCEL_TOKEN`, `VERCEL_TEAM` (team slug or ID) and `VERCEL_PROJECT` (project name or ID).
+
+If the variables are in a `.env` file that dotenvx encrypted, put `dotenvx run --` before
+the command.
 
 On Modal, `--image` also accepts a Modal image ID (`im-...`). This permits a test of an
 image that Modal built from the Dockerfile, without a registry.
@@ -79,10 +82,11 @@ Add these in the repository settings, under "Secrets and variables", "Actions":
 |---|---|---|
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | Secrets | A Modal token. |
 | `VERCEL_TOKEN` | Secret | A Vercel access token. |
-| `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Variables | The team and the project that own the sandboxes. |
-| `VCR_IMAGE` | Variable | `vcr.vercel.com/<team-slug>/<project>/base` |
+| `VERCEL_TEAM` | Variable | The slug of the team that owns the sandboxes. |
+| `VERCEL_PROJECT` | Variable | The name of the project that owns the sandboxes and the image. |
 
-The Vercel steps are skipped while `VCR_IMAGE` is not set.
+The image name on Vercel is `vcr.vercel.com/<VERCEL_TEAM>/<VERCEL_PROJECT>/base`.
+The Vercel steps are skipped while `VERCEL_TEAM` is not set.
 
 GitHub can create the container package as private. Modal then cannot pull it. If the
 Modal smoke test fails on the image pull, open the package settings on GitHub and set the
