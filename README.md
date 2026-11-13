@@ -36,7 +36,8 @@ Later work can rely on these properties. The smoke test checks each of them.
 - `mise`, `git`, a C compiler and every tool in `image/mise.toml` are on `PATH`: the
   language runtimes (Node.js, Bun, Python, Rust, Perl, Ruby), the agents (`claude`,
   `codex`, `pi`), and the secret and developer tools.
-- The tools are at the versions in `image/mise.lock`. Claude Code does not update itself.
+- The tools start at the versions in `image/mise.lock`. Claude Code can update itself in a
+  running sandbox.
 - The tools also run when a provider drops the image environment, because each tool
   is linked into `/usr/local/bin`.
 - `/root` has the default config files: `~/.claude.json` (Claude Code starts without the

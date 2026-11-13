@@ -50,9 +50,7 @@ IS_SANDBOX = "1"
 GH_HOST = "github.com"
 
 # claude code env vars
-# The lockfile pins the Claude Code version, so the tool must not update itself.
-DISABLE_AUTOUPDATER = "1"
-CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "1"
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
 CLAUDE_CODE_DEFAULT_SUBAGENT_MODEL = "opus"
 CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL = "1h"
 CLAUDE_CODE_ENABLE_TODO_TOOLS = "1"
