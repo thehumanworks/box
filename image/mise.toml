@@ -1,0 +1,17 @@
+# System-wide mise config of the base image. The Dockerfile copies this file to
+# /etc/mise/config.toml. Versions are exact; `mise run image:lock` refreshes mise.lock.
+
+[tools]
+claude = "2.1.323"
+codex = "0.163.0"
+pi = "1.5.2"
+
+[env]
+# The image pins the Claude Code version, so the tool must not update itself.
+DISABLE_AUTOUPDATER = "1"
+
+[settings]
+# Sandboxes have no terminal to answer prompts.
+yes = true
+# The image pins the mise version, so a notice about a newer version is only noise.
+disable_update_warning = true

@@ -1,0 +1,15 @@
+# Tasks for this repository. They need Node.js 24 or later on PATH.
+# The tools of the sandbox image are not here. They are in image/mise.toml.
+
+[tasks.typecheck]
+description = "Type-check the TypeScript code"
+run = "npm run typecheck"
+
+[tasks."image:lock"]
+description = "Refresh image/mise.lock after a version change in image/mise.toml"
+dir = "{{config_root}}/image"
+run = "mise lock --platform linux-x64"
+
+[tasks.smoke]
+description = "Run the smoke test: mise run smoke -- --provider <modal|vercel> --image <reference>"
+run = "node src/smoke.ts"
